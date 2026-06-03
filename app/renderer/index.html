@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; font-src 'self';" />
+  <title>PlaT's Gaming — RCON Admin</title>
+  <link rel="stylesheet" href="assets/fonts.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- HEADER: brand + server tabs -->
+  <header class="topbar">
+    <div class="brand">
+      <img src="assets/logo.png" alt="PlaT's Gaming" class="brand-logo" />
+      <div class="brand-text">
+        <div class="brand-name">PLAT'S GAMING</div>
+        <div class="brand-sub">RCON ADMIN CONSOLE</div>
+      </div>
+    </div>
+    <nav class="server-tabs" id="serverTabs"><!-- tabs injected --></nav>
+    <button id="themeToggle" class="theme-toggle" title="Toggle light / dark"></button>
+    <button id="addServerBtn" class="add-server" title="Add a server">+ ADD SERVER</button>
+  </header>
+
+  <div id="app">
+    <!-- LEFT: connection + player picker -->
+    <aside class="sidebar">
+      <div class="conn-card">
+        <div class="conn-row">
+          <span id="dot" class="dot off"></span>
+          <span id="connText">No server</span>
+        </div>
+        <div class="conn-row acting-row" id="actingRow" title="Your in-game character (used for Teleport / Summon). Click to change.">
+          <span id="actingDot" class="dot off"></span>
+          <span id="actingText" class="acting-text">Acting as: not set</span>
+        </div>
+        <div class="conn-actions">
+          <button id="editServerBtn" class="mini-btn" title="Edit active server">Edit</button>
+          <button id="refreshBtn" class="mini-btn">↻ Refresh</button>
+        </div>
+      </div>
+
+      <div class="players">
+        <div class="players-head">
+          <span>ONLINE PLAYERS</span>
+          <span id="playerCount" class="count">0</span>
+        </div>
+        <input id="playerSearch" class="search" placeholder="Filter players…" />
+        <ul id="playerList" class="player-list"></ul>
+      </div>
+
+      <div class="selected-card">
+        <div class="sel-label">SELECTED TARGET</div>
+        <div id="selName" class="sel-name">— none —</div>
+        <div id="selMeta" class="sel-meta"></div>
+      </div>
+    </aside>
+
+    <!-- CENTER: action grid -->
+    <main class="panel" id="panel">
+      <div class="empty-state hidden" id="emptyState">
+        <img src="assets/logo.png" class="empty-logo" alt="" />
+        <h2>No servers yet</h2>
+        <p>Add your Conan Exiles server to start managing it over RCON.</p>
+        <button id="emptyAddBtn" class="cta-btn">+ Add your first server</button>
+      </div>
+
+      <div id="actionGrid">
+        <section class="group">
+          <h2 class="group-title">Server</h2>
+          <div class="tiles">
+            <button class="act-btn" data-act="dashboard"><span class="act-ico">📊</span><span class="act-lbl">Dashboard</span></button>
+            <button class="act-btn" data-act="banManager"><span class="act-ico">🔨</span><span class="act-lbl">Ban Manager</span></button>
+            <button class="act-btn" data-act="playerFinder"><span class="act-ico">🔍</span><span class="act-lbl">Player Finder</span></button>
+            <button class="act-btn" data-act="buildingReport"><span class="act-ico">🏗️</span><span class="act-lbl">Building Report</span></button>
+            <button class="act-btn" data-act="raidLog"><span class="act-ico">⚔️</span><span class="act-lbl">Raid &amp; Destruction Log</span></button>
+            <button class="act-btn" data-act="clanManager"><span class="act-ico">🛡️</span><span class="act-lbl">Clan Manager</span></button>
+          </div>
+        </section>
+
+        <section class="group">
+          <h2 class="group-title">Punishments</h2>
+          <div class="tiles">
+            <button class="act-btn" data-act="kick"><span class="act-ico">👢</span><span class="act-lbl">Kick Player</span></button>
+            <button class="act-btn" data-act="kill"><span class="act-ico">💀</span><span class="act-lbl">Kill Player</span></button>
+          </div>
+        </section>
+
+        <section class="group">
+          <h2 class="group-title">Interactions</h2>
+          <div class="tiles">
+            <button class="act-btn" data-act="teleportTo"><span class="act-ico">🌀</span><span class="act-lbl">Teleport to Player</span></button>
+            <button class="act-btn" data-act="summon"><span class="act-ico">🧲</span><span class="act-lbl">Summon Player</span></button>
+            <button class="act-btn" data-act="sendHome"><span class="act-ico">🏠</span><span class="act-lbl">Send Home</span></button>
+          </div>
+        </section>
+
+        <section class="group">
+          <h2 class="group-title">Tools</h2>
+          <div class="tiles">
+            <button class="act-btn" data-act="editCharacter"><span class="act-ico">✏️</span><span class="act-lbl">Edit Character</span></button>
+            <button class="act-btn danger" data-act="deleteCharacter"><span class="act-ico">🗑️</span><span class="act-lbl">Delete Character</span></button>
+            <button class="act-btn danger" data-act="removeBuildings"><span class="act-ico">🧱</span><span class="act-lbl">Remove Buildings</span></button>
+            <button class="act-btn" data-act="clearCooldowns"><span class="act-ico">⏱️</span><span class="act-lbl">Clear All Cooldowns</span></button>
+            <button class="act-btn" data-act="viewFeats"><span class="act-ico">⭐</span><span class="act-lbl">View Feats</span></button>
+            <button class="act-btn" data-act="heatmap"><span class="act-ico">🗺️</span><span class="act-lbl">View Building Heatmap</span></button>
+            <button class="act-btn" data-act="viewQuestFlags"><span class="act-ico">🚩</span><span class="act-lbl">View Quest Flags</span></button>
+            <button class="act-btn" data-act="viewInventory"><span class="act-ico">🎒</span><span class="act-lbl">View Inventory</span></button>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <!-- RIGHT: output -->
+    <section class="output">
+      <div class="output-head">
+        <span id="outTitle">OUTPUT</span>
+        <button id="clearOut" class="icon-btn" title="Clear">✕</button>
+      </div>
+      <div id="outBody" class="output-body">
+        <div class="hint">Pick a player, then click an action. Results show here.</div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Support box (bottom-right) -->
+  <div id="supportBox">
+    <button id="coffeeBtn" class="support-link coffee" title="Buy me a coffee">
+      <span class="support-ico"></span><span>Buy me a coffee</span>
+    </button>
+    <button id="discordBtn" class="support-link discord" title="Join the Discord">
+      <span class="support-ico"></span><span>Support</span>
+    </button>
+  </div>
+
+  <!-- Server add/edit modal -->
+  <div id="serverModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="serverModalTitle">Add server</h3>
+        <button id="closeServer" class="icon-btn">✕</button>
+      </div>
+      <label>Server name <input id="cfgName" placeholder="e.g. My Server (PvE-C)" /></label>
+      <label>Server IP / host <input id="cfgHost" placeholder="123.45.67.89" /></label>
+      <label>RCON port <input id="cfgPort" placeholder="25575" /></label>
+      <label>RCON password <input id="cfgPass" type="password" placeholder="from Game.ini [RconPlugin] RconPassword" /></label>
+      <label>Your in-game character name <input id="cfgAdmin" placeholder="exact name — needed for Teleport / Summon" /></label>
+      <details class="advanced">
+        <summary>Advanced: console command overrides</summary>
+        <p class="muted">Sent via <code>con &lt;idx&gt; &lt;cmd&gt;</code>. Adjust if a game update changes a command.</p>
+        <label>Kill command <input id="cfgKill" placeholder="Suicide" /></label>
+        <label>Teleport command <input id="cfgTp" placeholder="TeleportPlayer" /></label>
+        <label>Freeze command <input id="cfgFreeze" placeholder="(none in vanilla)" /></label>
+        <label>Unfreeze command <input id="cfgUnfreeze" placeholder="(none in vanilla)" /></label>
+      </details>
+      <div class="modal-actions">
+        <button id="testBtn" class="mini-btn">Test connection</button>
+        <span id="testResult" class="test-result"></span>
+      </div>
+      <div class="modal-actions end">
+        <button id="deleteServerBtn" class="ghost-btn danger-text hidden">Delete</button>
+        <button id="cancelServer" class="ghost-btn">Cancel</button>
+        <button id="saveServer" class="primary-btn">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Generic data/edit modal -->
+  <div id="dataModal" class="modal hidden">
+    <div class="modal-card wide">
+      <div class="modal-head">
+        <h3 id="dataTitle">Data</h3>
+        <button id="closeData" class="icon-btn">✕</button>
+      </div>
+      <div id="dataBody" class="data-body"></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

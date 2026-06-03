@@ -1,0 +1,4 @@
+node_modules/
+dist/
+pippi-rcon-config.json
+*.log

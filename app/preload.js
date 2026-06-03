@@ -1,0 +1,52 @@
+'use strict';
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('api', {
+  // servers
+  getServers: () => ipcRenderer.invoke('servers:get'),
+  addServer: (s) => ipcRenderer.invoke('servers:add', s),
+  updateServer: (id, partial) => ipcRenderer.invoke('servers:update', id, partial),
+  deleteServer: (id) => ipcRenderer.invoke('servers:delete', id),
+  setActiveServer: (id) => ipcRenderer.invoke('servers:setActive', id),
+  testServer: (s) => ipcRenderer.invoke('servers:test', s),
+  confirm: (opts) => ipcRenderer.invoke('confirm', opts),
+  openExternal: (url) => ipcRenderer.invoke('open:external', url),
+
+  // players
+  listPlayers: () => ipcRenderer.invoke('players:list'),
+  resolvePlayer: (p) => ipcRenderer.invoke('player:resolve', p),
+
+  // actions
+  kick: (t, msg) => ipcRenderer.invoke('act:kick', t, msg),
+  kill: (t) => ipcRenderer.invoke('act:kill', t),
+  freeze: (t, on) => ipcRenderer.invoke('act:freeze', t, on),
+  teleportTo: (t) => ipcRenderer.invoke('act:teleportTo', t),
+  summon: (t) => ipcRenderer.invoke('act:summon', t),
+  sendHome: (t) => ipcRenderer.invoke('act:sendHome', t),
+  viewCharacter: (t) => ipcRenderer.invoke('act:viewCharacter', t),
+  editCharacter: (t, fields) => ipcRenderer.invoke('act:editCharacter', t, fields),
+  deleteCharacter: (t) => ipcRenderer.invoke('act:deleteCharacter', t),
+  removeBuildings: (t) => ipcRenderer.invoke('act:removeBuildings', t),
+  clearCooldowns: (t) => ipcRenderer.invoke('act:clearCooldowns', t),
+  viewFeats: (t) => ipcRenderer.invoke('act:viewFeats', t),
+  viewQuestFlags: (t) => ipcRenderer.invoke('act:viewQuestFlags', t),
+  viewInventory: (t) => ipcRenderer.invoke('act:viewInventory', t),
+  heatmap: (opts) => ipcRenderer.invoke('act:heatmap', opts),
+  ownerAt: (at) => ipcRenderer.invoke('act:ownerAt', at),
+  itemDb: () => ipcRenderer.invoke('item:db'),
+  itemIcon: (file) => ipcRenderer.invoke('item:icon', file),
+  dashboard: () => ipcRenderer.invoke('act:dashboard'),
+  listBans: () => ipcRenderer.invoke('act:listBans'),
+  ban: (opts) => ipcRenderer.invoke('act:ban', opts),
+  unban: (id) => ipcRenderer.invoke('act:unban', id),
+  whitelist: (id, on) => ipcRenderer.invoke('act:whitelist', id, on),
+  findChars: (q) => ipcRenderer.invoke('act:findChars', q),
+  buildingReport: () => ipcRenderer.invoke('act:buildingReport'),
+  raidLog: (opts) => ipcRenderer.invoke('act:raidLog', opts),
+  clanList: () => ipcRenderer.invoke('act:clanList'),
+  clanMembers: (id) => ipcRenderer.invoke('act:clanMembers', id),
+  renameGuild: (id, name) => ipcRenderer.invoke('act:renameGuild', id, name),
+  setGuildOwner: (id, charId) => ipcRenderer.invoke('act:setGuildOwner', id, charId),
+  disbandGuild: (id) => ipcRenderer.invoke('act:disbandGuild', id),
+  topBuilders: () => ipcRenderer.invoke('act:topBuilders'),
+});

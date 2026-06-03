@@ -1,0 +1,23 @@
+# Dependencies & build output
+node_modules/
+dist/
+build/
+
+# .NET extractor artifacts (regenerable)
+extractor/bin/
+extractor/obj/
+extractor/extracted_items.json
+
+# Distributables — publish via GitHub Releases, NOT the repo
+*.exe
+*.zip
+
+# Local secrets / per-user config — never commit
+servers.json
+*rcon-config*.json
+items-extra.json
+
+# Logs / OS cruft
+*.log
+Thumbs.db
+.DS_Store

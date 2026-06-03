@@ -1,0 +1,34 @@
+{
+  "name": "plats-rcon-admin",
+  "version": "1.2.0",
+  "description": "PlaT's Gaming RCON Admin — control panel for Conan Exiles servers over RCON. No mods required.",
+  "main": "main.js",
+  "author": "",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-packager . \"PlaT RCON Admin\" --platform=win32 --arch=x64 --out=dist --overwrite --prune=true --icon=icon.ico --ignore=node_modules --ignore=_probe --ignore=_test --ignore=^/dist$",
+    "dist:installer": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.plat.rconadmin",
+    "productName": "PlaT RCON Admin",
+    "files": [
+      "**/*",
+      "!dist/**"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "devDependencies": {
+    "@electron/packager": "^18.4.4",
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  }
+}
