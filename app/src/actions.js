@@ -276,9 +276,11 @@ async function sqlAll(rcon, buildQuery, page = 200, maxPages = 300) {
 // {x, y (cell center, world units), count}. Click->owner is resolved separately.
 async function buildingHeatmap(rcon, cfg, opts = {}) {
   const BIN = Number(opts.bin) || 7000; // ~70m grid cells
-  // Bound to the playable map so glitched/out-of-bounds builds (x up to ~1.9M)
-  // don't dominate the density normalization or sit off the map image.
-  const bounds = 'ap.x BETWEEN -500000 AND 500000 AND ap.y BETWEEN -500000 AND 500000';
+  // "Enhanced" merges Exiled Lands + Siptah into one world; Siptah sits offset
+  // at x > ~1.2M. Filter to the requested map's coordinate region.
+  const bounds = opts.map === 'siptah'
+    ? 'ap.x > 800000'
+    : 'ap.x BETWEEN -500000 AND 500000 AND ap.y BETWEEN -500000 AND 500000';
   const where = opts.ownerId ? `WHERE b.owner_id=${toInt(opts.ownerId)} AND ${bounds}` : `WHERE ${bounds}`;
   const buildQuery = (lim, off) =>
     `sql SELECT CAST(ap.x/${BIN} AS INT) AS gx, CAST(ap.y/${BIN} AS INT) AS gy, COUNT(*) AS c ` +

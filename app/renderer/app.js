@@ -582,12 +582,20 @@ async function disbandClan(c) {
 }
 
 // ---------- heatmap ----------
-const HEAT_DEFAULT_CAL = { cx: 0, cy: 0, span: 820000, flipY: false };
+// Both maps live in one merged "Enhanced" world; Siptah is offset at x≈+1.58M.
+// Calibration is stored per map as offsets (dx,dy) from a base center so the
+// sliders stay usable even for Siptah's far-away coordinates.
+const MAP_DEFS = {
+  exiled: { img: 'assets/maps/exiled.jpg', base: { cx: 0, cy: 0 }, span: 820000 },
+  siptah: { img: 'assets/maps/siptah.jpg', base: { cx: 1578000, cy: 115000 }, span: 720000 },
+};
 function loadCal(mapKey) {
-  try { const j = JSON.parse(localStorage.getItem('heatcal_' + mapKey)); if (j) return { ...HEAT_DEFAULT_CAL, ...j }; } catch (e) {}
-  return { ...HEAT_DEFAULT_CAL };
+  const def = { dx: 0, dy: 0, span: MAP_DEFS[mapKey].span, flipY: false };
+  try { const j = JSON.parse(localStorage.getItem('heatcal_' + mapKey)); if (j) return { ...def, ...j }; } catch (e) {}
+  return def;
 }
 function saveCal(mapKey, cal) { try { localStorage.setItem('heatcal_' + mapKey, JSON.stringify(cal)); } catch (e) {} }
+function effCal(mapKey, cal) { const b = MAP_DEFS[mapKey].base; return { cx: b.cx + cal.dx, cy: b.cy + cal.dy, span: cal.span, flipY: cal.flipY }; }
 function loadImage(src) {
   return new Promise((resolve) => { const i = new Image(); i.onload = () => resolve(i); i.onerror = () => resolve(null); i.src = src; });
 }
@@ -598,18 +606,19 @@ async function openHeatmap() {
   body.innerHTML = '<div class="note">Loading building positions & map…</div>';
   $('dataModal').classList.remove('hidden');
 
-  const mapKey = 'exiled';            // active server's map (Exiled Lands)
+  let mapKey = 'exiled';
   let cal = loadCal(mapKey);
-  let cells = [];                     // [{x, y, count}] binned server-side
-  let curBin = 7000;
-  let bg = 'map';                     // 'map' | 'none'
-  const mapImg = await loadImage('assets/maps/exiled.jpg');
+  let cells = []; let curBin = 7000; let bg = 'map';
+  const imgCache = {};
+  const curImg = async () => { if (!(mapKey in imgCache)) imgCache[mapKey] = await loadImage(MAP_DEFS[mapKey].img); return imgCache[mapKey]; };
+  let mapImg = await curImg();
 
   body.innerHTML = '';
   const controls = document.createElement('div'); controls.className = 'heat-controls';
   controls.innerHTML =
     `<select id="heatOwner"><option value="">All players</option></select>` +
-    `<select id="heatBg"><option value="map">Exiled Lands map</option><option value="none">No map (scatter)</option></select>` +
+    `<select id="heatMap"><option value="exiled">Exiled Lands</option><option value="siptah">Isle of Siptah</option></select>` +
+    `<select id="heatBg"><option value="map">Map image</option><option value="none">Scatter</option></select>` +
     `<button id="heatReload" class="mini-btn" style="flex:0 0 auto">Reload</button>` +
     `<span id="heatCount" class="muted"></span>`;
   body.appendChild(controls);
@@ -617,10 +626,10 @@ async function openHeatmap() {
   const calRow = document.createElement('div'); calRow.className = 'heat-controls'; calRow.id = 'calRow';
   calRow.innerHTML =
     `<span class="muted">Align&nbsp;to&nbsp;map:</span>` +
-    `<label class="muted">Zoom<input id="calSpan" type="range" min="300000" max="1300000" step="5000" value="${cal.span}"></label>` +
-    `<label class="muted">X<input id="calX" type="range" min="-300000" max="300000" step="2000" value="${cal.cx}"></label>` +
-    `<label class="muted">Y<input id="calY" type="range" min="-300000" max="300000" step="2000" value="${cal.cy}"></label>` +
-    `<label class="muted">Flip&nbsp;Y<input id="calFlip" type="checkbox" ${cal.flipY ? 'checked' : ''}></label>` +
+    `<label class="muted">Zoom<input id="calSpan" type="range" min="200000" max="1300000" step="5000"></label>` +
+    `<label class="muted">X<input id="calX" type="range" min="-400000" max="400000" step="5000"></label>` +
+    `<label class="muted">Y<input id="calY" type="range" min="-400000" max="400000" step="5000"></label>` +
+    `<label class="muted">Flip&nbsp;Y<input id="calFlip" type="checkbox"></label>` +
     `<button id="calReset" class="mini-btn" style="flex:0 0 auto">Reset</button>`;
   body.appendChild(calRow);
 
@@ -630,10 +639,11 @@ async function openHeatmap() {
   info.textContent = 'Click a cluster to see who owns it. Use the Align sliders so clusters line up with the map.';
   body.appendChild(info);
 
-  const redraw = () => drawHeat(canvas, cells, { mapImg: bg === 'map' ? mapImg : null, cal });
+  const syncSliders = () => { $('calX').value = cal.dx; $('calY').value = cal.dy; $('calSpan').value = cal.span; $('calFlip').checked = cal.flipY; };
+  const redraw = () => drawHeat(canvas, cells, { mapImg: bg === 'map' ? mapImg : null, cal: effCal(mapKey, cal) });
   async function load(ownerId) {
     info.textContent = 'Loading…';
-    const res = await api.heatmap(ownerId ? { ownerId } : {});
+    const res = await api.heatmap({ map: mapKey, ...(ownerId ? { ownerId } : {}) });
     if (!res.ok) { $('heatCount').textContent = res.message; info.textContent = res.message; return; }
     cells = res.cells; curBin = res.bin || 7000;
     $('heatCount').textContent = `${res.count} buildings · ${res.cellCount} clusters`;
@@ -647,14 +657,15 @@ async function openHeatmap() {
     top.table.rows.forEach((r) => { const o = document.createElement('option'); o.value = r.owner_id; o.textContent = `${r.name && r.name !== 'void' ? r.name : 'Unknown'} (${r.pieces})`; sel.appendChild(o); });
     sel.onchange = () => load(sel.value);
   }
+  $('heatMap').onchange = async (e) => { mapKey = e.target.value; cal = loadCal(mapKey); mapImg = await curImg(); syncSliders(); await load($('heatOwner').value); };
   $('heatBg').onchange = (e) => { bg = e.target.value; $('calRow').style.display = bg === 'map' ? 'flex' : 'none'; redraw(); };
   $('heatReload').onclick = () => load($('heatOwner').value);
-  const onCal = () => { cal = { cx: +$('calX').value, cy: +$('calY').value, span: +$('calSpan').value, flipY: $('calFlip').checked }; saveCal(mapKey, cal); redraw(); };
+  const onCal = () => { cal = { dx: +$('calX').value, dy: +$('calY').value, span: +$('calSpan').value, flipY: $('calFlip').checked }; saveCal(mapKey, cal); redraw(); };
   $('calSpan').oninput = onCal; $('calX').oninput = onCal; $('calY').oninput = onCal; $('calFlip').onchange = onCal;
-  $('calReset').onclick = () => { cal = { ...HEAT_DEFAULT_CAL }; saveCal(mapKey, cal); $('calSpan').value = cal.span; $('calX').value = cal.cx; $('calY').value = cal.cy; $('calFlip').checked = cal.flipY; redraw(); };
+  $('calReset').onclick = () => { cal = { dx: 0, dy: 0, span: MAP_DEFS[mapKey].span, flipY: false }; saveCal(mapKey, cal); syncSliders(); redraw(); };
 
-  // click -> owner: convert the click to world coords and ask the server who
-  // owns the buildings around that spot.
+  // click -> owner: convert click to absolute world coords (incl. Siptah offset)
+  // and ask the server who owns the buildings around that spot.
   canvas.onclick = async (ev) => {
     if (!canvas._toWorld) return;
     const rect = canvas.getBoundingClientRect();
@@ -672,6 +683,7 @@ async function openHeatmap() {
     }
   };
 
+  syncSliders();
   $('calRow').style.display = bg === 'map' ? 'flex' : 'none';
   await load('');
 }
