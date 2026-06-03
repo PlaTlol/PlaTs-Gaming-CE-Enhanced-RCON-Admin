@@ -10,6 +10,11 @@ const toInt = (v) => {
   return Number.isFinite(n) ? n : null;
 };
 
+// Shown after direct game.db edits: the live server keeps world state in memory,
+// so sql writes don't apply until a restart (and a running server can overwrite
+// them on its next save). Native/live commands don't need this.
+const RESTART_NOTE = '⚠ Server restart required to apply. This edits game.db directly; the running server won\'t reflect it until restart — and a live server may overwrite it on its next save. Safest to apply during a restart/while stopped.';
+
 // ---- shared lookups -------------------------------------------------------
 
 async function listPlayers(rcon) {
@@ -163,7 +168,7 @@ async function editCharacter(rcon, cfg, target, fields) {
   if (fields.isAlive != null && fields.isAlive !== '') sets.push(`isAlive=${toInt(fields.isAlive) ? 1 : 0}`);
   if (!sets.length) return { ok: false, title: 'Edit Character', message: 'Nothing to change.' };
   const raw = await rcon.command(`sql UPDATE characters SET ${sets.join(', ')} WHERE id=${id};`);
-  return { ok: true, title: 'Edit Character', message: `Updated ${target.charName}. Changes apply on their next relog.`, raw };
+  return { ok: true, title: 'Edit Character', message: `Updated ${target.charName}.`, note: RESTART_NOTE, raw };
 }
 
 async function deleteCharacter(rcon, cfg, target) {
@@ -182,7 +187,7 @@ async function deleteCharacter(rcon, cfg, target) {
     const raw = await rcon.command(`sql DELETE FROM ${t} WHERE ${col}=${id};`);
     results.push(`${t}: ${String(raw).trim()}`);
   }
-  return { ok: true, title: 'Delete Character', message: `Deleted ${target.charName} (${id}) and related rows.`, raw: results.join('\n') };
+  return { ok: true, title: 'Delete Character', message: `Deleted ${target.charName} (${id}) and related rows.`, note: RESTART_NOTE, raw: results.join('\n') };
 }
 
 async function removeBuildings(rcon, cfg, target) {
@@ -197,7 +202,7 @@ async function removeBuildings(rcon, cfg, target) {
 async function clearCooldowns(rcon, cfg, target) {
   const id = toInt(target.dbId);
   const raw = await rcon.command(`sql DELETE FROM character_buffs WHERE char_id=${id};`);
-  return { ok: true, title: 'Clear All Cooldowns', message: `Cleared active buffs/cooldowns for ${target.charName}.`, raw };
+  return { ok: true, title: 'Clear All Cooldowns', message: `Cleared active buffs/cooldowns for ${target.charName}.`, note: RESTART_NOTE, raw };
 }
 
 async function viewFeats(rcon, cfg, target) {
@@ -480,17 +485,17 @@ async function clanMembers(rcon, cfg, guildId) {
 }
 async function renameGuild(rcon, cfg, guildId, name) {
   const raw = await rcon.command(`sql UPDATE guilds SET name='${sqlEscape(name)}' WHERE guildId=${toInt(guildId)};`);
-  return { ok: true, title: 'Rename Clan', message: `Renamed clan ${guildId} to "${name}".`, raw };
+  return { ok: true, title: 'Rename Clan', message: `Renamed clan ${guildId} to "${name}".`, note: RESTART_NOTE, raw };
 }
 async function setGuildOwner(rcon, cfg, guildId, charId) {
   const raw = await rcon.command(`sql UPDATE guilds SET owner=${toInt(charId)} WHERE guildId=${toInt(guildId)};`);
-  return { ok: true, title: 'Set Clan Owner', message: `Set owner of clan ${guildId} to character ${charId}.`, raw };
+  return { ok: true, title: 'Set Clan Owner', message: `Set owner of clan ${guildId} to character ${charId}.`, note: RESTART_NOTE, raw };
 }
 async function disbandGuild(rcon, cfg, guildId) {
   const id = toInt(guildId);
   const r1 = await rcon.command(`sql UPDATE characters SET guild=NULL WHERE guild=${id};`);
   const r2 = await rcon.command(`sql DELETE FROM guilds WHERE guildId=${id};`);
-  return { ok: true, title: 'Disband Clan', message: `Disbanded clan ${id} and cleared its members.`, raw: `${r1}\n${r2}` };
+  return { ok: true, title: 'Disband Clan', message: `Disbanded clan ${id} and cleared its members.`, note: RESTART_NOTE, raw: `${r1}\n${r2}` };
 }
 
 module.exports = {

@@ -559,7 +559,7 @@ async function showClanMembers(c) {
       tr.innerHTML = `<td><b>${esc(m.charName)}</b> <span class="muted">#${m.dbId}</span></td><td>${esc(m.level)}</td><td>${m.last ? timeAgo(m.last) : '—'}</td>`;
       const td = document.createElement('td'); td.style.whiteSpace = 'nowrap';
       const ob = document.createElement('button'); ob.className = 'mini-btn'; ob.style.flex = '0 0 auto'; ob.textContent = 'Make owner';
-      ob.onclick = async () => { if (await api.confirm({ title: 'Set clan owner', message: `Make ${m.charName} owner of ${c.name}?` })) { const res = await api.setGuildOwner(c.id, m.dbId); log({ ok: res.ok, title: 'Clan owner', message: res.message }); showClanMembers(c); } };
+      ob.onclick = async () => { if (await api.confirm({ title: 'Set clan owner', message: `Make ${m.charName} owner of ${c.name}?` })) { const res = await api.setGuildOwner(c.id, m.dbId); log({ ok: res.ok, title: 'Clan owner', message: res.message, note: res.note }); showClanMembers(c); } };
       const sel = document.createElement('button'); sel.className = 'mini-btn'; sel.style.flex = '0 0 auto'; sel.style.marginLeft = '4px'; sel.textContent = 'Target';
       sel.onclick = () => { selected = { idx: undefined, charName: m.charName, playerName: '', userId: null, platformId: null, dbId: m.dbId, dbLevel: m.level }; updateSelected(); renderPlayers(); $('dataModal').classList.add('hidden'); log({ ok: true, title: 'Selected', message: `${m.charName} is the target.` }); };
       td.appendChild(ob); td.appendChild(sel); tr.appendChild(td); tb.appendChild(tr);
@@ -571,13 +571,13 @@ async function renameClan(c) {
   const nm = prompt(`Rename clan "${c.name}" to:`, c.name);
   if (nm === null || !nm.trim()) return;
   const r = await api.renameGuild(c.id, nm.trim());
-  log({ ok: r.ok, title: 'Rename clan', message: r.message, raw: r.raw });
+  log({ ok: r.ok, title: 'Rename clan', message: r.message, note: r.note, raw: r.raw });
   showClanManager();
 }
 async function disbandClan(c) {
   if (!(await api.confirm({ title: 'Disband clan', message: `PERMANENTLY disband "${c.name}" (#${c.id})? Removes the clan and unassigns its ${c.members} member(s); their clan-owned buildings become ownerless. Cannot be undone.` }))) return;
   const r = await api.disbandGuild(c.id);
-  log({ ok: r.ok, title: 'Disband clan', message: r.message, raw: r.raw });
+  log({ ok: r.ok, title: 'Disband clan', message: r.message, note: r.note, raw: r.raw });
   showClanManager();
 }
 
