@@ -76,7 +76,7 @@ function createWindow() {
     minWidth: 1000,
     minHeight: 680,
     backgroundColor: '#070a12',
-    title: "PlaT's Gaming — RCON Admin",
+    title: "PlaT's Gaming — CE Enhanced RCON Admin",
     icon: path.join(__dirname, 'icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

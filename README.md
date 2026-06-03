@@ -1,4 +1,4 @@
-# PlaT's Gaming — RCON Admin
+# PlaT's Gaming — CE Enhanced RCON Admin
 
 A desktop admin console for **Conan Exiles** servers, driven entirely over **RCON** —
 **no server mods required**. Manage players, clans, buildings, bans and more from a

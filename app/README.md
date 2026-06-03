@@ -1,4 +1,4 @@
-# PlaT's Gaming — RCON Admin
+# PlaT's Gaming — CE Enhanced RCON Admin
 
 A shareable desktop control panel for **Conan Exiles** servers, driven entirely
 over **RCON** — no server mods required. It reproduces the in-game admin button
