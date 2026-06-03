@@ -666,7 +666,7 @@ async function openHeatmap() {
     if (res && res.ok && res.owner != null) {
       info.innerHTML = `Owner: <b style="color:var(--yellow)">${esc(res.owner)}</b> — ${res.pieces} building piece(s) nearby · owner_id ${res.ownerId}`;
     } else if (res && res.ok && res.ownerId != null) {
-      info.innerHTML = `Owner: <b style="color:var(--yellow)">owner ${res.ownerId}</b> — ${res.pieces} piece(s) nearby (no character name)`;
+      info.innerHTML = `Owner: <b style="color:var(--yellow)">owner ${res.ownerId}</b> — ${res.pieces} piece(s) nearby (no player/clan on record — likely removed)`;
     } else {
       info.textContent = 'No buildings near that spot — click directly on a red cluster.';
     }

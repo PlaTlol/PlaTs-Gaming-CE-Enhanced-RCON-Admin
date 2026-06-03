@@ -296,8 +296,9 @@ async function buildingHeatmap(rcon, cfg, opts = {}) {
 async function buildingOwnerAt(rcon, cfg, { x, y, radius }) {
   const r = Number(radius) || 6000;
   const raw = await rcon.command(
-    `sql SELECT c.char_name AS owner, b.owner_id AS owner_id, COUNT(*) AS pieces ` +
-    `FROM actor_position ap JOIN buildings b ON b.object_id=ap.id LEFT JOIN characters c ON c.id=b.owner_id ` +
+    `sql SELECT COALESCE(c.char_name, g.name) AS owner, b.owner_id AS owner_id, COUNT(*) AS pieces ` +
+    `FROM actor_position ap JOIN buildings b ON b.object_id=ap.id ` +
+    `LEFT JOIN characters c ON c.id=b.owner_id LEFT JOIN guilds g ON g.guildId=b.owner_id ` +
     `WHERE ap.x BETWEEN ${Math.round(x - r)} AND ${Math.round(x + r)} ` +
     `AND ap.y BETWEEN ${Math.round(y - r)} AND ${Math.round(y + r)} ` +
     `GROUP BY b.owner_id ORDER BY pieces DESC LIMIT 1;`
