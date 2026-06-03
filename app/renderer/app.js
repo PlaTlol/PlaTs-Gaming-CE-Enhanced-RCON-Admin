@@ -22,6 +22,8 @@ let connOn = false;
 let editingServerId = null; // null = add mode
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const hasChar = (p) => !!(p && p.charName && String(p.charName).trim());
+const pdisp = (p) => hasChar(p) ? p.charName : (p && p.playerName ? p.playerName : '(no character)');
 
 // ---------- output log ----------
 function log({ ok = true, title = '', message = '', raw = '', note = '' }) {
@@ -102,7 +104,7 @@ function renderPlayers() {
     .forEach((p) => {
       const li = document.createElement('li');
       if (selected && selected.idx === p.idx && selected.userId === p.userId) li.className = 'active';
-      li.innerHTML = `<span class="pl-name">${esc(p.charName)}</span><span class="pl-sub">${esc(p.playerName)} · idx ${p.idx}</span>`;
+      li.innerHTML = `<span class="pl-name">${esc(pdisp(p))}</span><span class="pl-sub">${esc(hasChar(p) ? p.playerName : 'no character yet')} · idx ${p.idx}</span>`;
       li.onclick = () => selectPlayer(p);
       ul.appendChild(li);
     });
@@ -115,7 +117,7 @@ async function selectPlayer(p) {
   renderPlayers();
 }
 function updateSelected() {
-  $('selName').textContent = selected ? selected.charName : '— none —';
+  $('selName').textContent = selected ? pdisp(selected) : '— none —';
   $('selMeta').textContent = selected ? `idx ${selected.idx} · userId ${selected.userId} · dbId ${selected.dbId ?? '—'}` : '';
 }
 function requireTarget() { if (!selected) { log({ ok: false, title: 'No target', message: 'Select an online player first.' }); return false; } return true; }
