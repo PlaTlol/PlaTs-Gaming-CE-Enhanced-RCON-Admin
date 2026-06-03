@@ -309,10 +309,13 @@ async function buildingOwnerAt(rcon, cfg, { x, y, radius }) {
 }
 
 // Top builders, for the heatmap owner filter and general overview.
+// Counts real pieces (building_instances) and resolves owner to a player OR a
+// clan name (owner_id can be either a character id or a guild id).
 async function topBuilders(rcon, cfg, limit = 25) {
   const raw = await rcon.command(
-    `sql SELECT b.owner_id AS owner_id, c.char_name AS name, COUNT(*) AS pieces ` +
-    `FROM buildings b LEFT JOIN characters c ON c.id=b.owner_id ` +
+    `sql SELECT b.owner_id AS owner_id, COALESCE(c.char_name, g.name) AS name, COUNT(*) AS pieces ` +
+    `FROM building_instances bi JOIN buildings b ON b.object_id=bi.object_id ` +
+    `LEFT JOIN characters c ON c.id=b.owner_id LEFT JOIN guilds g ON g.guildId=b.owner_id ` +
     `GROUP BY b.owner_id ORDER BY pieces DESC LIMIT ${toInt(limit) || 25};`
   );
   return { ok: true, title: 'Top Builders', table: parseSqlTable(raw), raw };
