@@ -1,6 +1,6 @@
 # Conan Exiles — RCON Command Reference
 
-Pulled live from the production server (`the server`, RCON `the server IP:25575`) on 2026-06-02.
+Verified live against a production Conan Exiles server's RCON on 2026-06-02.
 Conan's RconPlugin has a **closed command set** — only the commands below work. Raw console
 variables do **not** work directly; use `exec` for those (see notes).
 
@@ -50,7 +50,7 @@ variables do **not** work directly; use `exec` for those (see notes).
 ---
 
 ## Operational notes (learned in practice)
-- **Connection:** Source RCON protocol over TCP to `the server IP:25575` (auth packet type 3, command type 2). Password is in `Game.ini [RconPlugin] RconPassword`.
+- **Connection:** Source RCON protocol over TCP to the server's RCON `host:port` (auth packet type 3, command type 2). Password is in `Game.ini [RconPlugin] RconPassword`.
 - **Reading CVar values:** `exec dw.SomeCVar` → the value prints to `ConanSandbox.log` as
   `dw.SomeCVar = "<value>"   LastSetBy: <source>`. RCON itself only replies "Successfully executed".
 - **`LastSetBy`** tells you where a value came from: `Constructor` = compiled default, `ProjectSetting`/`SystemSettingsIni` = from an ini, `Console` = set live via RCON/console.
