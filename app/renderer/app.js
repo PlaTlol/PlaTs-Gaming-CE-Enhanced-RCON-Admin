@@ -943,19 +943,24 @@ function showCtxMenu(ev, p) {
   ev.preventDefault(); closeCtx();
   const m = document.createElement('div'); m.id = 'ctxMenu'; m.className = 'ctx-menu';
   const act = (fn) => async () => { closeCtx(); await selectPlayer(p); fn(); };
+  const COPY_ICON = SVG('<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>');
   const items = [
-    ['👢 Kick Player', act(() => ACTIONS.kick())],
-    ['💀 Kill Player', act(() => ACTIONS.kill())],
-    ['🌀 Teleport to', act(() => ACTIONS.teleportTo())],
-    ['🧲 Summon', act(() => ACTIONS.summon())],
-    ['🎒 View Inventory', act(() => ACTIONS.viewInventory())],
-    ['sep'],
-    ['📋 Copy SteamID', () => { closeCtx(); copyText(p.platformId, 'SteamID'); }],
-    ['📋 Copy User ID', () => { closeCtx(); copyText(p.userId, 'User ID'); }],
+    { ico: 'kick', label: 'Kick Player', fn: act(() => ACTIONS.kick()) },
+    { ico: 'kill', label: 'Kill Player', fn: act(() => ACTIONS.kill()) },
+    { ico: 'teleportTo', label: 'Teleport to', fn: act(() => ACTIONS.teleportTo()) },
+    { ico: 'summon', label: 'Summon', fn: act(() => ACTIONS.summon()) },
+    { ico: 'viewInventory', label: 'View Inventory', fn: act(() => ACTIONS.viewInventory()) },
+    { sep: true },
+    { svg: COPY_ICON, color: 'var(--muted)', label: 'Copy SteamID', fn: () => { closeCtx(); copyText(p.platformId, 'SteamID'); } },
+    { svg: COPY_ICON, color: 'var(--muted)', label: 'Copy User ID', fn: () => { closeCtx(); copyText(p.userId, 'User ID'); } },
   ];
   items.forEach((it) => {
-    if (it[0] === 'sep') { const s = document.createElement('div'); s.className = 'ctx-sep'; m.appendChild(s); return; }
-    const el = document.createElement('div'); el.className = 'ctx-item'; el.textContent = it[0]; el.onclick = it[1];
+    if (it.sep) { const s = document.createElement('div'); s.className = 'ctx-sep'; m.appendChild(s); return; }
+    const el = document.createElement('div'); el.className = 'ctx-item';
+    const svg = it.svg || ICONS[it.ico] || '';
+    const col = it.color || ICON_COLORS[it.ico] || 'var(--text-dim)';
+    el.innerHTML = `<span class="ctx-ico" style="color:${col}">${svg}</span><span>${esc(it.label)}</span>`;
+    el.onclick = it.fn;
     m.appendChild(el);
   });
   document.body.appendChild(m);
