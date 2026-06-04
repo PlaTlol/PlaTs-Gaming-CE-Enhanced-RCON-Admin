@@ -1001,12 +1001,26 @@ async function refreshMiniMap() {
   try { const res = await api.livePositions(); if (res && res.ok) _miniPlayers = res.players || []; } catch (e) {}
   drawMini();
 }
+const MINI_SIZES = { s: 230, m: 330, l: 452 };
+function applyMiniSize() {
+  const sz = localStorage.getItem('miniSize') || 's';
+  const mm = $('miniMap'); if (!mm) return;
+  mm.classList.remove('size-s', 'size-m', 'size-l'); mm.classList.add('size-' + sz);
+  const c = $('miniCanvas'); const px = MINI_SIZES[sz] || 230; c.width = px; c.height = px;
+  drawMini();
+}
 function startMiniMap() {
   refreshMiniMap();
   if (_miniStarted) return;
   _miniStarted = true;
+  applyMiniSize();
   if (localStorage.getItem('miniCollapsed') === '1') $('miniMap').classList.add('collapsed');
   $('miniCollapse').textContent = $('miniMap').classList.contains('collapsed') ? '▴' : '▾';
+  $('miniSize').onclick = () => {
+    const order = ['s', 'm', 'l'];
+    const next = order[(order.indexOf(localStorage.getItem('miniSize') || 's') + 1) % order.length];
+    localStorage.setItem('miniSize', next); applyMiniSize();
+  };
   $('miniMapSel').onchange = (e) => { _miniKey = e.target.value; drawMini(); };
   $('miniCollapse').onclick = () => {
     const c = $('miniMap').classList.toggle('collapsed');

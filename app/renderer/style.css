@@ -330,7 +330,10 @@ table.grid tr:hover td { background: rgba(196,30,58,.07); }
 .acting-set { color: var(--red-bright); font-weight: 600; font-size: 13px; }
 
 /* ---------- Live mini-map (bottom-right) ---------- */
-#miniMap { position: fixed; right: 14px; bottom: 92px; z-index: 38; width: 246px; background: linear-gradient(180deg, var(--bg-elev), var(--panel)); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 6px 20px rgba(0,0,0,.55); overflow: hidden; }
+#miniMap { position: fixed; right: 14px; bottom: 92px; z-index: 38; width: 246px; background: linear-gradient(180deg, var(--bg-elev), var(--panel)); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 6px 20px rgba(0,0,0,.55); overflow: hidden; transition: width .12s; }
+#miniMap.size-s { width: 246px; }
+#miniMap.size-m { width: 348px; }
+#miniMap.size-l { width: 470px; }
 .mini-head { display: flex; align-items: center; gap: 6px; padding: 7px 9px 4px; }
 .mini-title { font-family: 'Bebas Neue', sans-serif; font-size: 15px; letter-spacing: 1.5px; color: var(--text-strong); }
 .mini-head select { flex: 0 0 auto; padding: 2px 4px; font-size: 11px; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 5px; font-family: 'Rajdhani'; }
