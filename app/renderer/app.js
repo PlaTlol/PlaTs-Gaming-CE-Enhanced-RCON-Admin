@@ -94,20 +94,6 @@ async function refreshPlayers() {
   players = res.players;
   setConn(true, `${s.name} · ${players.length} online`);
   renderPlayers();
-  maybeGrantAdmin(s);
-}
-// When a server opts into auto-admin, grant it once we have a live connection.
-// Retries on each (re)connect until the admin char is actually online, then
-// stops so we don't re-read the admin password on every manual refresh.
-let _adminGrantedFor = null;
-async function maybeGrantAdmin(s) {
-  if (!s || !s.makeAdmin || !s.adminCharName) { _adminGrantedFor = null; return; }
-  if (_adminGrantedFor === s.id) return;
-  try {
-    const r = await api.makeAdmin();
-    if (r && r.ok) { _adminGrantedFor = s.id; toast(`✓ ${r.message}`); }
-    // if offline, leave _adminGrantedFor unset so the next refresh tries again
-  } catch (e) { /* ignore — non-critical */ }
 }
 function renderPlayers() {
   const q = ($('playerSearch').value || '').toLowerCase();
@@ -817,7 +803,6 @@ function openServerModal(id) {
   $('cfgPort').value = s ? s.port : 25575;
   $('cfgPass').value = s ? s.password : '';
   $('cfgAdmin').value = s ? s.adminCharName : '';
-  $('cfgMakeAdmin').checked = s ? !!s.makeAdmin : false;
   const cc = (s && s.consoleCommands) || {};
   $('cfgKill').value = cc.kill || '';
   $('cfgTp').value = cc.teleportSelf || '';
@@ -834,7 +819,6 @@ function readServerForm() {
     port: parseInt($('cfgPort').value, 10) || 25575,
     password: $('cfgPass').value,
     adminCharName: $('cfgAdmin').value.trim(),
-    makeAdmin: $('cfgMakeAdmin').checked,
     consoleCommands: {
       kill: $('cfgKill').value.trim() || 'Suicide',
       teleportSelf: $('cfgTp').value.trim() || 'TeleportPlayer',

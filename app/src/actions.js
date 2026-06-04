@@ -76,31 +76,6 @@ async function con(rcon, idx, command) {
   return rcon.command(`con ${idx} ${command}`);
 }
 
-// Grant in-game admin to the configured admin character by running the client
-// console command MakeMeAdmin in that player's context (via `con`). Conan's
-// MakeMeAdmin takes the server's AdminPassword, which we read live from the
-// server — the password is used only to build the command and is never returned
-// to the UI or stored. The player must be online (console commands run in a live
-// player context); if they aren't, we report that so the caller can retry later.
-async function makeAdmin(rcon, cfg) {
-  if (!cfg.adminCharName) {
-    return { ok: false, offline: false, title: 'Make Me Admin', message: 'Set your in-game character name on the server first.' };
-  }
-  const players = await listPlayers(rcon);
-  const me = players.find((p) => p.charName && p.charName.toLowerCase() === cfg.adminCharName.toLowerCase());
-  if (!me) {
-    return { ok: false, offline: true, title: 'Make Me Admin', message: `"${cfg.adminCharName}" isn't online yet — log into the game and it'll be granted automatically.` };
-  }
-  let pw = '';
-  try {
-    const r = await rcon.command('GetServerSetting AdminPassword');
-    const m = String(r).match(/AdminPassword[^\S\r\n]*[:=]?[^\S\r\n]*"?([^"\r\n]*)"?/i);
-    if (m) pw = m[1].trim();
-  } catch (e) { /* fall through — try without a password */ }
-  await con(rcon, me.idx, pw ? `MakeMeAdmin ${pw}` : 'MakeMeAdmin');
-  return { ok: true, offline: false, title: 'Make Me Admin', message: `Granted in-game admin to ${me.charName}.` };
-}
-
 // ---- PUNISHMENTS ----------------------------------------------------------
 
 async function kickPlayer(rcon, cfg, target, message) {
@@ -561,5 +536,5 @@ module.exports = {
   viewFeats, viewQuestFlags, viewInventory, buildingHeatmap, buildingOwnerAt, topBuilders,
   serverDashboard, listBans, banPlayer, unbanPlayer, whitelistPlayer, findCharacters,
   buildingReport, raidLog, clanList, clanMembers, renameGuild, setGuildOwner, disbandGuild,
-  livePlayerPositions, rawCommand, broadcastMessage, makeAdmin,
+  livePlayerPositions, rawCommand, broadcastMessage,
 };

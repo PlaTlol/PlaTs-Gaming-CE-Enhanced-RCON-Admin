@@ -110,10 +110,6 @@ async function connectFor(server) {
   c = new RconClient({ host: server.host, port: server.port, password: server.password, timeout: server.timeout || 8000 });
   await c.connect();
   conns.set(server.id, c);
-  // Auto-grant in-game admin on a fresh connection if the server opts in.
-  // Fire-and-forget: if the admin char isn't online yet it just no-ops and the
-  // renderer (or next connect) can retry.
-  if (server.makeAdmin) { actions.makeAdmin(c, server).catch(() => {}); }
   return c;
 }
 
@@ -231,7 +227,6 @@ A('act:livePositions', (c, s) => actions.livePlayerPositions(c, s));
 A('act:raw', (c, s, cmd) => actions.rawCommand(c, s, cmd));
 A('act:broadcast', (c, s, msg) => actions.broadcastMessage(c, s, msg));
 A('act:topBuilders', (c, s) => actions.topBuilders(c, s));
-A('act:makeAdmin', (c, s) => actions.makeAdmin(c, s));
 
 ipcMain.handle('open:external', (e, url) => {
   if (typeof url === 'string' && /^https:\/\//i.test(url)) shell.openExternal(url);
