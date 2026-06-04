@@ -9,6 +9,16 @@ clean panel that talks to your server the same way any RCON tool does.
 
 ---
 
+## Screenshots
+
+**The admin panel** — every tool one click away (shown with demo servers):
+
+![PlaT's Gaming RCON Admin — action panel](docs/screenshots/02-action-grid.png)
+
+**First run** — add your server (IP, RCON password, character name) and go:
+
+![First-run setup](docs/screenshots/01-empty-state.png)
+
 ## Features
 
 - **Server tabs** — manage multiple servers, switch between them, light/dark theme.
@@ -23,10 +33,15 @@ clean panel that talks to your server the same way any RCON tool does.
 Everything runs through the server's closed RCON command set (`sql`, `con`, and the
 native commands) — see [`RCON_Commands.md`](RCON_Commands.md).
 
-## Download & install
+## Download
 
-Grab the latest **installer** or **portable zip** from the
-[Releases](../../releases) page.
+Three ways to get it:
+
+1. **[platsgaming.com](https://platsgaming.com)** — download the latest installer directly.
+2. **[GitHub Releases](../../releases)** — grab the **installer** (`...Setup.exe`) or the **portable zip**.
+3. **Build it yourself** — see [Build from source](#build-from-source) below.
+
+**Installing:**
 
 - **Installer** (`...Setup.exe`) — recommended; installs everything together and makes
   a Start-menu / desktop shortcut.
