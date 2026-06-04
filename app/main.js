@@ -223,6 +223,9 @@ A('act:clanMembers', (c, s, id) => actions.clanMembers(c, s, id));
 A('act:renameGuild', (c, s, id, name) => actions.renameGuild(c, s, id, name));
 A('act:setGuildOwner', (c, s, id, charId) => actions.setGuildOwner(c, s, id, charId));
 A('act:disbandGuild', (c, s, id) => actions.disbandGuild(c, s, id));
+A('act:livePositions', (c, s) => actions.livePlayerPositions(c, s));
+A('act:raw', (c, s, cmd) => actions.rawCommand(c, s, cmd));
+A('act:broadcast', (c, s, msg) => actions.broadcastMessage(c, s, msg));
 A('act:topBuilders', (c, s) => actions.topBuilders(c, s));
 
 ipcMain.handle('open:external', (e, url) => {

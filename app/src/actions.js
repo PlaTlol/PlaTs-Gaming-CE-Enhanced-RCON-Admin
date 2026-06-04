@@ -317,6 +317,35 @@ async function buildingOwnerAt(rcon, cfg, { x, y, radius }) {
   return { ok: true, owner: (o.owner && o.owner !== 'void') ? o.owner : null, ownerId: toInt(o.owner_id), pieces: toInt(o.pieces) };
 }
 
+// Live positions of currently-online players (for the bottom-right mini-map).
+// listplayers is the authority on who's online; one IN query fetches coords.
+async function livePlayerPositions(rcon, cfg) {
+  const players = await listPlayers(rcon);
+  const ids = players.map((p) => p.userId).filter(Boolean).map((u) => `'${sqlEscape(u)}'`);
+  if (!ids.length) return { ok: true, players: [], online: players.length };
+  const raw = await rcon.command(
+    `sql SELECT a.user AS userId, c.char_name AS name, ap.x AS x, ap.y AS y ` +
+    `FROM account a JOIN characters c ON c.playerId=a.id JOIN actor_position ap ON ap.id=c.id ` +
+    `WHERE a.user IN (${ids.join(',')});`
+  );
+  const pos = parseSqlTable(raw).rows
+    .map((r) => ({ userId: r.userId, name: r.name, x: parseFloat(r.x), y: parseFloat(r.y) }))
+    .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+  return { ok: true, players: pos, online: players.length };
+}
+
+// Power-user: run any RCON command and return the raw reply.
+async function rawCommand(rcon, cfg, cmd) {
+  const raw = await rcon.command(String(cmd));
+  return { ok: true, title: 'RCON', message: `> ${cmd}`, raw: String(raw) };
+}
+// Broadcast composer: centered popup to all players.
+async function broadcastMessage(rcon, cfg, msg) {
+  const m = String(msg).replace(/[\r\n]/g, ' ');
+  const raw = await rcon.command(`broadcast ${m}`);
+  return { ok: true, title: 'Broadcast', message: `Sent: ${m}`, raw };
+}
+
 // Top builders, for the heatmap owner filter and general overview.
 // Counts real pieces (building_instances) and resolves owner to a player OR a
 // clan name (owner_id can be either a character id or a guild id).
@@ -507,4 +536,5 @@ module.exports = {
   viewFeats, viewQuestFlags, viewInventory, buildingHeatmap, buildingOwnerAt, topBuilders,
   serverDashboard, listBans, banPlayer, unbanPlayer, whitelistPlayer, findCharacters,
   buildingReport, raidLog, clanList, clanMembers, renameGuild, setGuildOwner, disbandGuild,
+  livePlayerPositions, rawCommand, broadcastMessage,
 };

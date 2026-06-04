@@ -48,5 +48,8 @@ contextBridge.exposeInMainWorld('api', {
   renameGuild: (id, name) => ipcRenderer.invoke('act:renameGuild', id, name),
   setGuildOwner: (id, charId) => ipcRenderer.invoke('act:setGuildOwner', id, charId),
   disbandGuild: (id) => ipcRenderer.invoke('act:disbandGuild', id),
+  livePositions: () => ipcRenderer.invoke('act:livePositions'),
+  raw: (cmd) => ipcRenderer.invoke('act:raw', cmd),
+  broadcast: (msg) => ipcRenderer.invoke('act:broadcast', msg),
   topBuilders: () => ipcRenderer.invoke('act:topBuilders'),
 });

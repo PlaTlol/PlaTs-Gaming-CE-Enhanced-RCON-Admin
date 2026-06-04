@@ -75,6 +75,8 @@
             <button class="act-btn" data-act="buildingReport"><span class="act-ico">🏗️</span><span class="act-lbl">Building Report</span></button>
             <button class="act-btn" data-act="raidLog"><span class="act-ico">⚔️</span><span class="act-lbl">Raid &amp; Destruction Log</span></button>
             <button class="act-btn" data-act="clanManager"><span class="act-ico">🛡️</span><span class="act-lbl">Clan Manager</span></button>
+            <button class="act-btn" data-act="broadcast"><span class="act-ico">📣</span><span class="act-lbl">Broadcast</span></button>
+            <button class="act-btn" data-act="rconConsole"><span class="act-ico">⌨️</span><span class="act-lbl">RCON Console</span></button>
           </div>
         </section>
 
@@ -121,6 +123,21 @@
         <div class="hint">Pick a player, then click an action. Results show here.</div>
       </div>
     </section>
+  </div>
+
+  <!-- Live mini-map (bottom-right) -->
+  <div id="miniMap" class="hidden">
+    <div class="mini-head">
+      <span class="mini-title">LIVE MAP</span>
+      <select id="miniMapSel"><option value="exiled">Exiled Lands</option><option value="siptah">Siptah</option></select>
+      <span id="miniOnline" class="mini-online"></span>
+      <button id="miniCollapse" class="mini-x" title="Hide map">▾</button>
+    </div>
+    <div class="mini-sub">↻ refreshes once per minute</div>
+    <div class="mini-body">
+      <canvas id="miniCanvas" width="230" height="230"></canvas>
+      <div id="miniTip" class="mini-tip hidden"></div>
+    </div>
   </div>
 
   <!-- Support box (bottom-right) -->

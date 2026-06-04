@@ -64,11 +64,12 @@ function renderTabs() {
 }
 
 async function switchServer(id) {
-  if (id === activeId) { await refreshPlayers(); return; }
+  if (id === activeId) { await refreshPlayers(); refreshMiniMap(); return; }
   const cfg = await api.setActiveServer(id);
   applyCfg(cfg);
   selected = null; updateSelected();
   await refreshPlayers();
+  refreshMiniMap();
 }
 
 function applyCfg(cfg) {
@@ -106,6 +107,7 @@ function renderPlayers() {
       if (selected && selected.idx === p.idx && selected.userId === p.userId) li.className = 'active';
       li.innerHTML = `<span class="pl-name">${esc(pdisp(p))}</span><span class="pl-sub">${esc(hasChar(p) ? p.playerName : 'no character yet')} · idx ${p.idx}</span>`;
       li.onclick = () => selectPlayer(p);
+      li.oncontextmenu = (e) => showCtxMenu(e, p);
       ul.appendChild(li);
     });
   updateActing();
@@ -118,7 +120,11 @@ async function selectPlayer(p) {
 }
 function updateSelected() {
   $('selName').textContent = selected ? pdisp(selected) : '— none —';
-  $('selMeta').textContent = selected ? `idx ${selected.idx} · userId ${selected.userId} · dbId ${selected.dbId ?? '—'}` : '';
+  const meta = $('selMeta');
+  meta.textContent = selected ? `idx ${selected.idx} · userId ${selected.userId} · dbId ${selected.dbId ?? '—'}` : '';
+  meta.title = selected ? 'Click to copy SteamID / User ID' : '';
+  meta.style.cursor = selected ? 'pointer' : 'default';
+  meta.onclick = selected ? () => copyText(selected.platformId || selected.userId, selected.platformId ? 'SteamID' : 'User ID') : null;
 }
 function requireTarget() { if (!selected) { log({ ok: false, title: 'No target', message: 'Select an online player first.' }); return false; } return true; }
 function requireDbId() { if (!requireTarget()) return false; if (selected.dbId == null) { log({ ok: false, title: 'No DB record', message: `${selected.charName} isn't in the character DB yet.` }); return false; } return true; }
@@ -144,6 +150,8 @@ const ACTIONS = {
   buildingReport: async () => showBuildingReport(),
   raidLog: async () => showRaidLog(),
   clanManager: async () => showClanManager(),
+  broadcast: async () => showBroadcast(),
+  rconConsole: async () => showRconConsole(),
 };
 document.querySelectorAll('.act-btn').forEach((btn) => {
   btn.onclick = async () => {
@@ -165,6 +173,8 @@ const ICONS = {
   buildingReport: SVG('<path d="M3 21h18"/><path d="M6 21V8l6-4 6 4v13"/><path d="M10 12h4M10 16h4"/>'),
   raidLog: SVG('<path d="M6 4l11 11M18 4L7 15"/><path d="M3.5 17.5l3 3M20.5 17.5l-3 3"/>'),
   clanManager: SVG('<path d="M12 2l8 3v6c0 5-3.5 8-8 11-4.5-3-8-6-8-11V5z"/>'),
+  broadcast: SVG('<path d="M3 10v4l12 5V5L3 10z"/><path d="M15 8a4 4 0 0 1 0 8"/><path d="M6 14v3a1.5 1.5 0 0 0 3 0v-2"/>'),
+  rconConsole: SVG('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/>'),
   // Punishments
   kick: SVG('<path d="M14 3h5v18h-5"/><path d="M3 12h11M10 8l4 4-4 4"/>'),
   kill: SVG('<circle cx="12" cy="10" r="7"/><circle cx="9" cy="10" r="1.4" fill="currentColor"/><circle cx="15" cy="10" r="1.4" fill="currentColor"/><path d="M8 18v2M12 18v2M16 18v2M7 17h10"/>'),
@@ -186,6 +196,7 @@ const ICONS = {
 const ICON_COLORS = {
   dashboard: '#5b9df0', banManager: '#e0243f', playerFinder: '#34d3c0',
   buildingReport: '#f5c542', raidLog: '#f0832f', clanManager: '#a779f0',
+  broadcast: '#5b9df0', rconConsole: '#4ade80',
   kick: '#f0832f', kill: '#e0243f',
   teleportTo: '#a779f0', summon: '#5b9df0', sendHome: '#4ade80',
   editCharacter: '#5b9df0', deleteCharacter: '#e0243f', removeBuildings: '#f0832f',
@@ -848,6 +859,174 @@ document.addEventListener('keydown', (e) => {
   else if (server && !server.classList.contains('hidden')) { server.classList.add('hidden'); e.preventDefault(); }
 });
 
+// ---------- toast + clipboard ----------
+function toast(msg) {
+  let t = $('toast'); if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t); }
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._tmr); t._tmr = setTimeout(() => t.classList.remove('show'), 1700);
+}
+async function copyText(text, label) {
+  if (text == null || text === '') { toast('Nothing to copy'); return; }
+  try { await navigator.clipboard.writeText(String(text)); toast(`${label || 'Copied'}: ${text}`); }
+  catch (e) { toast('Copy failed'); }
+}
+
+// ---------- broadcast composer ----------
+function bcPresets() { try { return JSON.parse(localStorage.getItem('bcPresets') || '[]'); } catch (e) { return []; } }
+function bcSave(a) { try { localStorage.setItem('bcPresets', JSON.stringify(a.slice(0, 12))); } catch (e) {} }
+async function showBroadcast() {
+  $('dataTitle').textContent = 'Broadcast Message';
+  const body = $('dataBody'); body.innerHTML = '';
+  body.appendChild(noteEl('Sends a centered popup to all online players (not a chat line).'));
+  const wrap = document.createElement('div'); wrap.className = 'edit-grid';
+  wrap.innerHTML = `<label>Message <input id="bcMsg" maxlength="200" placeholder="Server restarting in 5 minutes — log out safely!" /></label>`;
+  body.appendChild(wrap);
+  const presetRow = document.createElement('div'); presetRow.className = 'bc-presets'; body.appendChild(presetRow);
+  function renderPresets() {
+    presetRow.innerHTML = '';
+    const a = bcPresets();
+    if (!a.length) { presetRow.appendChild(noteEl('Save a message as a preset to reuse it.')); return; }
+    a.forEach((p, i) => {
+      const chip = document.createElement('span'); chip.className = 'bc-chip'; chip.textContent = p;
+      chip.onclick = () => { $('bcMsg').value = p; };
+      const x = document.createElement('button'); x.className = 'bc-chip-x'; x.textContent = '×'; x.title = 'remove preset';
+      x.onclick = (e) => { e.stopPropagation(); const arr = bcPresets(); arr.splice(i, 1); bcSave(arr); renderPresets(); };
+      chip.appendChild(x); presetRow.appendChild(chip);
+    });
+  }
+  renderPresets();
+  const btns = document.createElement('div'); btns.className = 'modal-actions';
+  const send = document.createElement('button'); send.className = 'primary-btn'; send.textContent = 'Send broadcast';
+  send.onclick = async () => { const m = $('bcMsg').value.trim(); if (!m) return; $('dataModal').classList.add('hidden'); await run('Broadcast', api.broadcast(m)); };
+  const savep = document.createElement('button'); savep.className = 'mini-btn'; savep.style.flex = '0 0 auto'; savep.textContent = 'Save as preset';
+  savep.onclick = () => { const m = $('bcMsg').value.trim(); if (!m) return; const a = bcPresets(); if (!a.includes(m)) { a.unshift(m); bcSave(a); renderPresets(); } };
+  btns.appendChild(send); btns.appendChild(savep);
+  body.appendChild(btns);
+  $('dataModal').classList.remove('hidden');
+  setTimeout(() => $('bcMsg').focus(), 50);
+}
+
+// ---------- RCON console ----------
+async function showRconConsole() {
+  $('dataTitle').textContent = 'RCON Console';
+  const body = $('dataBody'); body.innerHTML = '';
+  body.appendChild(noteEl('Power user: sends raw commands to the active server. Anything in the RCON command set works (including destructive ones). Try: help · listplayers · sql SELECT COUNT(*) FROM characters; · ↑/↓ for history.'));
+  const out = document.createElement('div'); out.className = 'rcon-out'; out.id = 'rconOut'; body.appendChild(out);
+  const bar = document.createElement('div'); bar.className = 'find-bar';
+  bar.innerHTML = `<input id="rconIn" placeholder="type a command and press Enter…" spellcheck="false" autocomplete="off" /><button id="rconSend" class="primary-btn">Send</button>`;
+  body.appendChild(bar);
+  const hist = []; let hi = -1;
+  function append(cmd, reply, err) {
+    const e = document.createElement('div'); e.className = 'rcon-entry' + (err ? ' err' : '');
+    e.innerHTML = `<div class="rcon-cmd">&gt; ${esc(cmd)}</div><pre class="rcon-reply">${esc(reply)}</pre>`;
+    out.appendChild(e); out.scrollTop = out.scrollHeight;
+  }
+  async function send() {
+    const cmd = $('rconIn').value.trim(); if (!cmd) return;
+    hist.unshift(cmd); hi = -1; $('rconIn').value = '';
+    const r = await api.raw(cmd);
+    append(cmd, (r && r.ok) ? (r.raw || '(no output)') : ((r && r.message) || 'error'), !(r && r.ok));
+  }
+  $('rconSend').onclick = send;
+  $('rconIn').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') send();
+    else if (e.key === 'ArrowUp') { if (hi < hist.length - 1) { hi++; $('rconIn').value = hist[hi] || ''; } e.preventDefault(); }
+    else if (e.key === 'ArrowDown') { if (hi > 0) { hi--; $('rconIn').value = hist[hi] || ''; } else { hi = -1; $('rconIn').value = ''; } e.preventDefault(); }
+  });
+  $('dataModal').classList.remove('hidden');
+  setTimeout(() => $('rconIn').focus(), 50);
+}
+
+// ---------- right-click player context menu ----------
+function closeCtx() { const m = $('ctxMenu'); if (m) m.remove(); }
+function showCtxMenu(ev, p) {
+  ev.preventDefault(); closeCtx();
+  const m = document.createElement('div'); m.id = 'ctxMenu'; m.className = 'ctx-menu';
+  const act = (fn) => async () => { closeCtx(); await selectPlayer(p); fn(); };
+  const items = [
+    ['👢 Kick Player', act(() => ACTIONS.kick())],
+    ['💀 Kill Player', act(() => ACTIONS.kill())],
+    ['🌀 Teleport to', act(() => ACTIONS.teleportTo())],
+    ['🧲 Summon', act(() => ACTIONS.summon())],
+    ['🎒 View Inventory', act(() => ACTIONS.viewInventory())],
+    ['sep'],
+    ['📋 Copy SteamID', () => { closeCtx(); copyText(p.platformId, 'SteamID'); }],
+    ['📋 Copy User ID', () => { closeCtx(); copyText(p.userId, 'User ID'); }],
+  ];
+  items.forEach((it) => {
+    if (it[0] === 'sep') { const s = document.createElement('div'); s.className = 'ctx-sep'; m.appendChild(s); return; }
+    const el = document.createElement('div'); el.className = 'ctx-item'; el.textContent = it[0]; el.onclick = it[1];
+    m.appendChild(el);
+  });
+  document.body.appendChild(m);
+  const mw = 186, mh = m.offsetHeight || 240;
+  let x = ev.clientX, y = ev.clientY;
+  if (x + mw > window.innerWidth) x = window.innerWidth - mw - 6;
+  if (y + mh > window.innerHeight) y = window.innerHeight - mh - 6;
+  m.style.left = x + 'px'; m.style.top = y + 'px';
+}
+document.addEventListener('click', closeCtx);
+window.addEventListener('blur', closeCtx);
+
+// ---------- live mini-map (bottom-right, 60s refresh) ----------
+let _miniKey = 'exiled';
+let _miniPlayers = [];
+const _miniImgs = {};
+let _miniStarted = false;
+const miniImg = async (k) => { if (!(k in _miniImgs)) _miniImgs[k] = await loadImage(MAP_DEFS[k].img); return _miniImgs[k]; };
+const miniInRegion = (p) => (_miniKey === 'siptah' ? p.x > 800000 : p.x <= 800000);
+async function drawMini() {
+  const canvas = $('miniCanvas'); if (!canvas) return;
+  const ctx = canvas.getContext('2d'); const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H); ctx.fillStyle = '#05070d'; ctx.fillRect(0, 0, W, H);
+  const img = await miniImg(_miniKey);
+  if (img) { ctx.drawImage(img, 0, 0, W, H); ctx.fillStyle = 'rgba(5,7,13,0.32)'; ctx.fillRect(0, 0, W, H); }
+  const cal = effCal(_miniKey, loadCal(_miniKey));
+  const toPix = (p) => ({ x: (0.5 + (p.x - cal.cx) / cal.span) * W, y: (cal.flipY ? (0.5 - (p.y - cal.cy) / cal.span) : (0.5 + (p.y - cal.cy) / cal.span)) * H });
+  const here = _miniPlayers.filter(miniInRegion);
+  canvas._dots = [];
+  here.forEach((p) => {
+    const q = toPix(p); if (q.x < -6 || q.x > W + 6 || q.y < -6 || q.y > H + 6) return;
+    canvas._dots.push({ x: q.x, y: q.y, name: p.name });
+    ctx.beginPath(); ctx.arc(q.x, q.y, 4.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#4ade80'; ctx.shadowColor = '#4ade80'; ctx.shadowBlur = 6; ctx.fill(); ctx.shadowBlur = 0;
+    ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.stroke();
+  });
+  if ($('miniOnline')) $('miniOnline').textContent = `${here.length} here · ${_miniPlayers.length} on`;
+}
+async function refreshMiniMap() {
+  const mm = $('miniMap'); if (!mm) return;
+  if (!activeServer()) { mm.classList.add('hidden'); return; }
+  mm.classList.remove('hidden');
+  try { const res = await api.livePositions(); if (res && res.ok) _miniPlayers = res.players || []; } catch (e) {}
+  drawMini();
+}
+function startMiniMap() {
+  refreshMiniMap();
+  if (_miniStarted) return;
+  _miniStarted = true;
+  if (localStorage.getItem('miniCollapsed') === '1') $('miniMap').classList.add('collapsed');
+  $('miniCollapse').textContent = $('miniMap').classList.contains('collapsed') ? '▴' : '▾';
+  $('miniMapSel').onchange = (e) => { _miniKey = e.target.value; drawMini(); };
+  $('miniCollapse').onclick = () => {
+    const c = $('miniMap').classList.toggle('collapsed');
+    localStorage.setItem('miniCollapsed', c ? '1' : '0');
+    $('miniCollapse').textContent = c ? '▴' : '▾';
+  };
+  const canvas = $('miniCanvas'), tip = $('miniTip');
+  canvas.onmousemove = (ev) => {
+    const rect = canvas.getBoundingClientRect();
+    const px = (ev.clientX - rect.left) * (canvas.width / rect.width);
+    const py = (ev.clientY - rect.top) * (canvas.height / rect.height);
+    let best = null, bd = 13 * 13;
+    (canvas._dots || []).forEach((d) => { const dd = (d.x - px) * (d.x - px) + (d.y - py) * (d.y - py); if (dd < bd) { bd = dd; best = d; } });
+    if (best) { tip.textContent = best.name; tip.style.left = Math.min(rect.width - 60, ev.clientX - rect.left + 8) + 'px'; tip.style.top = (ev.clientY - rect.top - 8) + 'px'; tip.classList.remove('hidden'); }
+    else tip.classList.add('hidden');
+  };
+  canvas.onmouseleave = () => tip.classList.add('hidden');
+  setInterval(refreshMiniMap, 60000); // once per minute
+}
+
 // ---------- boot ----------
 (async function init() {
   const cfg = await api.getServers();
@@ -857,5 +1036,6 @@ document.addEventListener('keydown', (e) => {
   } else {
     await refreshPlayers();
   }
+  startMiniMap();
 })();
 })();
