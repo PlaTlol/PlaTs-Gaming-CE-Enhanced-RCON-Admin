@@ -11,9 +11,10 @@ const toInt = (v) => {
 };
 
 // Shown after direct game.db edits: the live server keeps world state in memory,
-// so sql writes don't apply until a restart (and a running server can overwrite
-// them on its next save). Native/live commands don't need this.
-const RESTART_NOTE = '⚠ Server restart required to apply. This edits game.db directly; the running server won\'t reflect it until restart — and a live server may overwrite it on its next save. Safest to apply during a restart/while stopped.';
+// so sql writes aren't loaded until the server reloads the data (on restart, or
+// for a character on their next relog), and a running server can overwrite them
+// on its next autosave. Native/live commands don't need this.
+const RESTART_NOTE = '⚠ Restart the server to apply. This edits game.db directly — the running server keeps this data in memory, so it won\'t take effect until the server reloads it (a restart, or a relog for a character) and may overwrite it on its next autosave. Best: make the edit, then restart soon after (ideally while the affected player is offline).';
 
 // ---- shared lookups -------------------------------------------------------
 
