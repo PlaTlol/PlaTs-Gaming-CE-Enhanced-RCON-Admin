@@ -1,5 +1,7 @@
 # PlaT's Gaming — CE Enhanced RCON Admin
 
+[![Discord](https://img.shields.io/badge/Discord-Join%20for%20support-5865F2?logo=discord&logoColor=white)](https://discord.gg/TTDew4G7eR)
+
 A desktop admin console for **Conan Exiles** servers, driven entirely over **RCON** —
 **no server mods required**. Manage players, clans, buildings, bans and more from a
 clean panel that talks to your server the same way any RCON tool does.
@@ -78,6 +80,10 @@ npm run dist:installer # build the NSIS installer (needs Windows Developer Mode 
 - `extractor/` — optional .NET tool (UAssetAPI) that reads the game's `ItemTable`
   from a local Conan DevKit install to extend the bundled item-name database.
 - `RCON_Commands.md` — reference of the Conan RCON command set.
+
+## Support & community
+
+Questions, bug reports, or feature ideas? **[Join the PlaT's Gaming Discord](https://discord.gg/TTDew4G7eR)** for help, or open an [issue](../../issues).
 
 ## License
 
