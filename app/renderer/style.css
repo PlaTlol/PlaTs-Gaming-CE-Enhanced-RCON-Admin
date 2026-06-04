@@ -37,6 +37,9 @@
   --text-dim: #353b46;
   --text-strong: #0f1218;
   --muted: #6b7280;
+  --yellow: #b45309;   /* amber that's legible on light surfaces (notes, "acting as") */
+  --green: #16a34a;    /* darker green for status text/dots on white */
+  --blue: #2563eb;
   --border: rgba(0,0,0,.14);
   --border-soft: rgba(0,0,0,.07);
   --surface-top: #ffffff;
@@ -49,8 +52,32 @@
   --topbar-bot: #eef1f6;
   --fill: rgba(0,0,0,.045);
   --fill-strong: rgba(0,0,0,.09);
-  --glow: rgba(196,30,58,.06);
+  --glow: rgba(196,30,58,.05);
 }
+
+/* ---- Light-mode polish ----------------------------------------------------
+   The base rules use heavy black drop-shadows and a red scrollbar tuned for the
+   dark theme; on a light background those read as grime and a pink strip. These
+   overrides soften shadows to a soft blue-grey, neutralise the scrollbar, and
+   drop the dark text/icon shadows. Light-mode only — dark theme is untouched. */
+[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(15,23,42,.16); }
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: rgba(15,23,42,.3); }
+[data-theme="light"] .topbar { box-shadow: 0 1px 0 rgba(255,255,255,.7), 0 2px 12px rgba(30,41,59,.07); }
+[data-theme="light"] .add-server { box-shadow: 0 2px 8px rgba(196,30,58,.22); }
+[data-theme="light"] .group-title { text-shadow: none; }
+[data-theme="light"] .act-btn { box-shadow: 0 1px 2px rgba(30,41,59,.05), 0 2px 6px rgba(30,41,59,.07); }
+[data-theme="light"] .act-btn:hover { box-shadow: 0 6px 16px rgba(30,41,59,.14); }
+[data-theme="light"] .act-btn.danger:hover { background: linear-gradient(180deg, #fff1f3, #ffe3e8); box-shadow: 0 6px 16px rgba(196,30,58,.2); }
+[data-theme="light"] .act-ico { filter: drop-shadow(0 1px 2px rgba(30,41,59,.18)); }
+[data-theme="light"] .act-btn:hover .act-ico { filter: brightness(1.04) drop-shadow(0 1px 3px rgba(30,41,59,.22)); }
+[data-theme="light"] .cta-btn { box-shadow: 0 4px 14px rgba(196,30,58,.26); }
+[data-theme="light"] .acting-name { text-shadow: none; }
+[data-theme="light"] .modal-card { border-color: rgba(0,0,0,.1); box-shadow: 0 18px 50px rgba(30,41,59,.22), 0 0 0 1px rgba(196,30,58,.08); }
+[data-theme="light"] #miniMap { box-shadow: 0 8px 26px rgba(30,41,59,.18); }
+[data-theme="light"] .ctx-menu { border-color: rgba(0,0,0,.1); box-shadow: 0 12px 32px rgba(30,41,59,.2); }
+[data-theme="light"] .support-link { border-color: rgba(0,0,0,.12); box-shadow: 0 3px 12px rgba(30,41,59,.18); }
+[data-theme="light"] .inv-ico { filter: drop-shadow(0 1px 2px rgba(30,41,59,.2)); }
+[data-theme="light"] .inv-qty { box-shadow: 0 1px 3px rgba(30,41,59,.3); }
 
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
