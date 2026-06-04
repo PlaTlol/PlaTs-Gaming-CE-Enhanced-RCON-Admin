@@ -235,10 +235,13 @@ ipcMain.handle('open:external', (e, url) => {
 });
 
 // ---- lightweight update check ---------------------------------------------
-// Fetches a tiny version manifest hosted on platsgaming.com and compares it to
-// the running version. Manifest format:
-//   { "version": "1.3.13", "url": "https://platsgaming.com/...", "notes": "..." }
-// Fails silently (no manifest / offline / parse error -> no banner).
+// Tries the GitHub Releases API first (works with NO auth token once the repo is
+// public — publishing a Release IS the update notification), then falls back to a
+// small manifest on platsgaming.com. Both are token-free; fails silently when
+// offline / private / absent. GitHub needs a User-Agent (fetchBuf sets one).
+//   GitHub: latest release tag_name + the Setup.exe asset's download URL.
+//   Manifest: { "version": "1.3.14", "url": "https://...", "notes": "..." }
+const GH_RELEASES_API = 'https://api.github.com/repos/PlaTlol/PlaTs-Gaming-CE-Enhanced-RCON-Admin/releases/latest';
 const UPDATE_MANIFEST = 'https://platsgaming.com/rcon-admin/latest.json';
 const DOWNLOAD_PAGE = 'https://platsgaming.com';
 function isNewerVersion(remote, current) {
@@ -251,17 +254,33 @@ function isNewerVersion(remote, current) {
   }
   return false;
 }
+async function fetchLatestRelease() {
+  // 1) GitHub Releases API (public repo, no token)
+  try {
+    const d = JSON.parse((await fetchBuf(GH_RELEASES_API)).toString('utf8'));
+    if (d && d.tag_name && !d.draft) {
+      const asset = Array.isArray(d.assets) ? d.assets.find((a) => /setup.*\.exe$/i.test(a.name)) : null;
+      return { version: d.tag_name, url: (asset && asset.browser_download_url) || d.html_url || DOWNLOAD_PAGE, notes: d.body || '', source: 'github' };
+    }
+  } catch (e) { /* private / offline / rate-limited -> fall back */ }
+  // 2) platsgaming.com manifest
+  try {
+    const d = JSON.parse((await fetchBuf(UPDATE_MANIFEST)).toString('utf8'));
+    if (d && d.version) {
+      const url = (typeof d.url === 'string' && /^https:\/\//i.test(d.url)) ? d.url : DOWNLOAD_PAGE;
+      return { version: d.version, url, notes: typeof d.notes === 'string' ? d.notes : '', source: 'platsgaming' };
+    }
+  } catch (e) { /* no manifest -> no update */ }
+  return null;
+}
 ipcMain.handle('update:check', async () => {
   const current = app.getVersion();
   try {
-    const buf = await fetchBuf(UPDATE_MANIFEST);
-    const data = JSON.parse(buf.toString('utf8'));
-    const latest = String(data.version || '').trim();
-    if (latest && isNewerVersion(latest, current)) {
-      const url = (typeof data.url === 'string' && /^https:\/\//i.test(data.url)) ? data.url : DOWNLOAD_PAGE;
-      return { ok: true, updateAvailable: true, latest, current, url, notes: typeof data.notes === 'string' ? data.notes : '' };
+    const latest = await fetchLatestRelease();
+    if (latest && isNewerVersion(latest.version, current)) {
+      return { ok: true, updateAvailable: true, latest: String(latest.version).replace(/^v/i, ''), current, url: latest.url, notes: latest.notes, source: latest.source };
     }
-    return { ok: true, updateAvailable: false, latest, current };
+    return { ok: true, updateAvailable: false, current };
   } catch (err) {
     return { ok: false, updateAvailable: false, current, message: err.message };
   }
