@@ -106,22 +106,40 @@ async function freezePlayer(rcon, cfg, target, freeze) {
 
 // ---- INTERACTIONS ---------------------------------------------------------
 
+// Exiled Lands and Siptah share one "Enhanced" instance but occupy separate
+// world-coordinate regions (Siptah is offset to x > 800k). `TeleportPlayer`
+// only sets coordinates — it can't perform the map transition between them, so
+// a cross-region teleport silently no-ops. Detect that and report it instead of
+// claiming a false success.
+const SIPTAH_X = 800000;
+function regionOf(x) { return Number(x) > SIPTAH_X ? 'siptah' : 'exiled'; }
+function mapName(x) { return regionOf(x) === 'siptah' ? 'the Isle of Siptah' : 'the Exiled Lands'; }
+
 async function teleportToPlayer(rcon, cfg, target) {
   const admin = await getAdmin(rcon, cfg);
   const tc = await getCoords(rcon, target.dbId);
   if (!tc) throw new Error(`No position found for ${target.charName}.`);
+  if (admin.coords && regionOf(admin.coords.x) !== regionOf(tc.x)) {
+    return { ok: false, title: 'Teleport to Player',
+      message: `Cross-map teleport isn't possible over RCON. You (${admin.charName}) are on ${mapName(admin.coords.x)} and ${target.charName} is on ${mapName(tc.x)} — Conan's TeleportPlayer can't cross between Exiled Lands and Siptah. Travel to ${mapName(tc.x)} in-game first, then teleport.` };
+  }
   const cmd = (cfg.consoleCommands && cfg.consoleCommands.teleportSelf) || 'TeleportPlayer';
   const raw = await con(rcon, admin.idx, `${cmd} ${tc.x} ${tc.y} ${tc.z}`);
-  return { ok: true, title: 'Teleport to Player', message: `Teleported you (${admin.charName}) to ${target.charName}.`, raw };
+  return { ok: true, title: 'Teleport to Player', message: `Teleported you (${admin.charName}) to ${target.charName} on ${mapName(tc.x)}.`, raw };
 }
 
 async function summonPlayer(rcon, cfg, target) {
   const admin = await getAdmin(rcon, cfg);
   if (!admin.coords) throw new Error('Could not read your position.');
+  const tc = target.dbId != null ? await getCoords(rcon, target.dbId) : null;
+  if (tc && regionOf(admin.coords.x) !== regionOf(tc.x)) {
+    return { ok: false, title: 'Summon Player',
+      message: `Can't summon across maps. ${target.charName} is on ${mapName(tc.x)} and you (${admin.charName}) are on ${mapName(admin.coords.x)} — Conan can't move a player between Exiled Lands and Siptah this way.` };
+  }
   const cmd = (cfg.consoleCommands && cfg.consoleCommands.teleportSelf) || 'TeleportPlayer';
   const c = admin.coords;
   const raw = await con(rcon, target.idx, `${cmd} ${c.x} ${c.y} ${c.z}`);
-  return { ok: true, title: 'Summon Player', message: `Summoned ${target.charName} to you.`, raw };
+  return { ok: true, title: 'Summon Player', message: `Summoned ${target.charName} to you on ${mapName(admin.coords.x)}.`, raw };
 }
 
 // Send player to a bed/bedroll they own (reliable, schema-verified).
