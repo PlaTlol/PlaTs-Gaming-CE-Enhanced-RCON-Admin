@@ -833,10 +833,10 @@ function updateActing() {
   const s = activeServer();
   const name = s && s.adminCharName;
   const dot = $('actingDot'), txt = $('actingText');
-  if (!name) { dot.className = 'dot off'; txt.innerHTML = 'Acting as: <span class="acting-set">set your character ›</span>'; return; }
+  if (!name) { dot.className = 'dot off'; txt.innerHTML = '<span class="acting-label">ACTING AS</span><span class="acting-set">set your character ›</span>'; return; }
   const online = players.some((p) => p.charName.toLowerCase() === name.toLowerCase());
   dot.className = 'dot ' + (online ? 'on' : 'off');
-  txt.innerHTML = `Acting as: <b>${esc(name)}</b> <span class="muted">· ${online ? 'online' : 'offline'}</span>`;
+  txt.innerHTML = `<span class="acting-label">ACTING AS</span><span class="acting-name">${esc(name)}</span><span class="acting-status ${online ? 'on' : 'off'}">${online ? 'online' : 'offline'}</span>`;
 }
 $('actingRow').onclick = () => { if (activeServer()) openServerModal(activeId); };
 

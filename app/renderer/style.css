@@ -318,8 +318,12 @@ table.grid tr:hover td { background: rgba(196,30,58,.07); }
 .theme-toggle { flex-shrink: 0; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--fill); border: 1px solid var(--border); color: var(--text-dim); cursor: pointer; transition: color .12s, border-color .12s; }
 .theme-toggle:hover { color: var(--text-strong); border-color: var(--red); }
 .theme-toggle svg { width: 18px; height: 18px; }
-.acting-row { margin-bottom: 0 !important; cursor: pointer; }
-.acting-text { flex: 1; font-size: 12px; color: var(--muted); }
-.acting-text b { color: var(--text-strong); }
-.acting-set { color: var(--red-bright); font-weight: 600; }
-.acting-row:hover .acting-text { color: var(--text); }
+.acting-row { margin: 9px 0 0 !important; cursor: pointer; background: var(--fill); border: 1px solid var(--border); border-left: 3px solid var(--yellow); border-radius: 7px; padding: 7px 10px; }
+.acting-row:hover { border-color: var(--yellow); background: rgba(250,204,21,.09); }
+.acting-text { flex: 1; display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; min-width: 0; }
+.acting-label { font-family: 'Rajdhani', sans-serif; font-size: 9px; font-weight: 700; letter-spacing: 1.5px; color: var(--muted); }
+.acting-name { color: var(--yellow); font-weight: 700; font-size: 15px; line-height: 1; text-shadow: 0 1px 2px rgba(0,0,0,.4); }
+.acting-status { font-size: 11px; font-weight: 700; letter-spacing: .5px; margin-left: auto; text-transform: uppercase; }
+.acting-status.on { color: var(--green); }
+.acting-status.off { color: var(--muted); }
+.acting-set { color: var(--red-bright); font-weight: 600; font-size: 13px; }
