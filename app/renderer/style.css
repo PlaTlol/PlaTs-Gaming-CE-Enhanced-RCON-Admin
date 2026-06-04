@@ -90,9 +90,19 @@ body {
   font-size: 15px;
   user-select: none;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto 1fr;
   overflow: hidden;
 }
+
+/* Update banner — collapsed (0-height grid row) until a newer version exists */
+#updateBar { overflow: hidden; max-height: 0; transition: max-height .25s ease; background: linear-gradient(90deg, var(--red-dark), var(--red), var(--red-dark)); color: #fff; box-shadow: 0 2px 10px rgba(196,30,58,.35); }
+#updateBar.show { max-height: 48px; }
+#updateBar .upd-inner { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 9px 16px; font-family: 'Rajdhani', sans-serif; font-size: 13.5px; font-weight: 600; letter-spacing: .3px; }
+#updateBar .upd-ico { font-size: 15px; }
+#updateBar a { color: #fff; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+#updateBar a:hover { color: #ffe; }
+#updateBar #updDismiss { margin-left: 6px; background: rgba(255,255,255,.18); color: #fff; border: none; border-radius: 5px; width: 20px; height: 20px; line-height: 1; cursor: pointer; font-size: 12px; }
+#updateBar #updDismiss:hover { background: rgba(255,255,255,.32); }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: rgba(196,30,58,.24); border-radius: 5px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(196,30,58,.4); }

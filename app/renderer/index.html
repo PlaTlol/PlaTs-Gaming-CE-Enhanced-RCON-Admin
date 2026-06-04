@@ -8,6 +8,16 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <!-- Update banner (collapsed unless a newer version is published) -->
+  <div id="updateBar">
+    <div class="upd-inner">
+      <span class="upd-ico">⬆</span>
+      <span>A new version is available — <b id="updLatest"></b>.</span>
+      <a id="updLink" href="#">Download the update →</a>
+      <button id="updDismiss" title="Dismiss">✕</button>
+    </div>
+  </div>
+
   <!-- HEADER: brand + server tabs -->
   <header class="topbar">
     <div class="brand">

@@ -1199,6 +1199,20 @@ function startMiniMap() {
   setInterval(refreshMiniMap, 60000); // once per minute
 }
 
+// ---------- update check ----------
+async function checkForUpdate() {
+  try {
+    const r = await api.checkUpdate();
+    if (!r || !r.updateAvailable) return;
+    $('updLatest').textContent = 'v' + r.latest;
+    const link = $('updLink');
+    link.title = r.notes || '';
+    link.onclick = (e) => { e.preventDefault(); api.openExternal(r.url); };
+    $('updDismiss').onclick = () => $('updateBar').classList.remove('show');
+    $('updateBar').classList.add('show');
+  } catch (e) { /* offline / no manifest — stay silent */ }
+}
+
 // ---------- boot ----------
 (async function init() {
   const cfg = await api.getServers();
@@ -1209,5 +1223,6 @@ function startMiniMap() {
     await refreshPlayers();
   }
   startMiniMap();
+  checkForUpdate();
 })();
 })();

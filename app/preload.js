@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('api', {
   testServer: (s) => ipcRenderer.invoke('servers:test', s),
   confirm: (opts) => ipcRenderer.invoke('confirm', opts),
   openExternal: (url) => ipcRenderer.invoke('open:external', url),
+  checkUpdate: () => ipcRenderer.invoke('update:check'),
 
   // players
   listPlayers: () => ipcRenderer.invoke('players:list'),

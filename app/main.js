@@ -234,6 +234,39 @@ ipcMain.handle('open:external', (e, url) => {
   if (typeof url === 'string' && /^https:\/\//i.test(url)) shell.openExternal(url);
 });
 
+// ---- lightweight update check ---------------------------------------------
+// Fetches a tiny version manifest hosted on platsgaming.com and compares it to
+// the running version. Manifest format:
+//   { "version": "1.3.13", "url": "https://platsgaming.com/...", "notes": "..." }
+// Fails silently (no manifest / offline / parse error -> no banner).
+const UPDATE_MANIFEST = 'https://platsgaming.com/rcon-admin/latest.json';
+const DOWNLOAD_PAGE = 'https://platsgaming.com';
+function isNewerVersion(remote, current) {
+  const norm = (v) => String(v || '').trim().replace(/^v/i, '').split('.').map((n) => parseInt(n, 10) || 0);
+  const r = norm(remote); const c = norm(current);
+  for (let i = 0; i < Math.max(r.length, c.length); i++) {
+    const a = r[i] || 0; const b = c[i] || 0;
+    if (a > b) return true;
+    if (a < b) return false;
+  }
+  return false;
+}
+ipcMain.handle('update:check', async () => {
+  const current = app.getVersion();
+  try {
+    const buf = await fetchBuf(UPDATE_MANIFEST);
+    const data = JSON.parse(buf.toString('utf8'));
+    const latest = String(data.version || '').trim();
+    if (latest && isNewerVersion(latest, current)) {
+      const url = (typeof data.url === 'string' && /^https:\/\//i.test(data.url)) ? data.url : DOWNLOAD_PAGE;
+      return { ok: true, updateAvailable: true, latest, current, url, notes: typeof data.notes === 'string' ? data.notes : '' };
+    }
+    return { ok: true, updateAvailable: false, latest, current };
+  } catch (err) {
+    return { ok: false, updateAvailable: false, current, message: err.message };
+  }
+});
+
 ipcMain.handle('item:db', () => itemDb());
 
 ipcMain.handle('item:icon', async (e, file) => {
