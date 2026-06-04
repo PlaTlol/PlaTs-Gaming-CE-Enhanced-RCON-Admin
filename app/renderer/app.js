@@ -517,6 +517,35 @@ async function showAbandoned() {
     $('abSummary').textContent = `${r.count} abandoned owner(s) · ${r.totalPieces.toLocaleString()} pieces reclaimable`;
     if (!rows.length) { tbl.innerHTML = `<tbody><tr><td class="muted">No owners inactive ${days}+ days, and no orphaned bases. 🎉 Your server is active — lower the threshold to review shorter-inactivity owners.</td></tr></tbody>`; return; }
 
+    const expanded = new Set(); const detailCache = {};
+    const alive = (v) => (v == 1 || v === '1');
+    // Build the expandable detail row for a clan (member roster) or player (char card).
+    function detailRow(o) {
+      const row = document.createElement('tr'); row.className = 'ab-detail';
+      const cell = document.createElement('td'); cell.colSpan = 5; cell.innerHTML = '<span class="muted">Loading…</span>';
+      row.appendChild(cell);
+      (async () => {
+        if (detailCache[o.ownerId] !== undefined) { cell.innerHTML = detailCache[o.ownerId]; return; }
+        let html = '';
+        if (o.kind === 'clan') {
+          const r = await api.clanMembers(o.ownerId);
+          if (r.ok && r.members.length) {
+            const mrows = r.members.slice().sort((a, b) => (b.last || 0) - (a.last || 0)).map((m) =>
+              `<tr><td>${esc(m.charName || ('#' + m.dbId))}</td><td>${esc(m.level)}</td><td>${alive(m.isAlive) ? 'alive' : 'dead'}</td><td>${m.last ? timeAgo(m.last) : '—'}</td></tr>`).join('');
+            html = `<div class="ab-sub"><b>${esc(o.name)}</b> · ${r.members.length} member(s) · sorted by most-recent login<table class="grid mini"><thead><tr><th>Member</th><th>Lvl</th><th>State</th><th>Last online</th></tr></thead><tbody>${mrows}</tbody></table></div>`;
+          } else html = '<div class="ab-sub muted">No characters remain in this clan — every member was deleted/purged.</div>';
+        } else if (o.kind === 'player') {
+          const r = await api.viewCharacter({ dbId: o.ownerId, charName: o.name });
+          const c = (r.ok && r.table && r.table.rows[0]) || null;
+          html = c
+            ? `<div class="ab-sub"><b>${esc(o.name)}</b> · level ${esc(c.level)} · ${alive(c.isAlive) ? 'alive' : 'dead'} · last online ${c.lastTimeOnline ? timeAgo(parseInt(c.lastTimeOnline, 10)) : '—'}${c.killerName && c.killerName !== 'void' ? ` · killed by ${esc(c.killerName)}` : ''}</div>`
+            : '<div class="ab-sub muted">No character record found.</div>';
+        }
+        detailCache[o.ownerId] = html;
+        cell.innerHTML = html;
+      })();
+      return row;
+    }
     function draw() {
       tbl.innerHTML = '<thead><tr><th>Owner</th><th>Type</th><th>Inactive</th><th>Pieces</th><th></th></tr></thead>';
       const tb = document.createElement('tbody');
@@ -524,6 +553,16 @@ async function showAbandoned() {
         const tr = document.createElement('tr');
         const idle = o.kind === 'orphan' ? '<span class="rl-code">owner deleted</span>'
           : (o.idleDays != null ? `${o.idleDays}d` + (o.kind === 'clan' ? ` <span class="muted">(${o.members || 0} members)</span>` : '') : 'unknown');
+        const expandable = o.kind === 'clan' || o.kind === 'player';
+        const tdOwner = document.createElement('td');
+        if (expandable) {
+          tdOwner.className = 'ab-owner'; tdOwner.title = 'Click for members / details';
+          tdOwner.innerHTML = `<span class="ab-caret">${expanded.has(o.ownerId) ? '▾' : '▸'}</span>${esc(o.name)}`;
+          tdOwner.onclick = () => { if (expanded.has(o.ownerId)) expanded.delete(o.ownerId); else expanded.add(o.ownerId); draw(); };
+        } else { tdOwner.textContent = o.name; }
+        const tdType = document.createElement('td'); tdType.textContent = KIND[o.kind] || o.kind;
+        const tdIdle = document.createElement('td'); tdIdle.innerHTML = idle;
+        const tdPieces = document.createElement('td'); tdPieces.textContent = o.pieces.toLocaleString();
         const td = document.createElement('td');
         const btn = document.createElement('button'); btn.className = 'mini-btn danger-text'; btn.textContent = 'Destroy';
         btn.onclick = async () => {
@@ -541,10 +580,10 @@ async function showAbandoned() {
           } else { btn.disabled = false; btn.textContent = 'Destroy'; toast(res.message || 'Failed'); }
         };
         td.appendChild(btn);
-        tr.innerHTML = `<td>${esc(o.name)}</td><td>${KIND[o.kind] || o.kind}</td><td>${idle}</td><td>${o.pieces.toLocaleString()}</td>`;
-        tr.appendChild(td);
+        tr.append(tdOwner, tdType, tdIdle, tdPieces, td);
         if (o.kind === 'orphan') tr.style.background = 'rgba(196,30,58,.10)';
         tb.appendChild(tr);
+        if (expanded.has(o.ownerId)) tb.appendChild(detailRow(o));
       });
       tbl.appendChild(tb);
     }

@@ -238,6 +238,13 @@ table.grid { width: 100%; border-collapse: collapse; font-size: 12px; }
 table.grid th { text-align: left; font-family: 'Rajdhani'; color: var(--red-bright); border-bottom: 1px solid var(--red-dark); padding: 6px 9px; letter-spacing: .5px; }
 table.grid td { padding: 5px 9px; border-bottom: 1px solid var(--border-soft); color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
 table.grid tr:hover td { background: rgba(196,30,58,.07); }
+.ab-owner { cursor: pointer; user-select: none; }
+.ab-caret { display: inline-block; width: 12px; color: var(--red-bright); }
+tr.ab-detail td { background: rgba(91,157,240,.06); }
+tr.ab-detail:hover td { background: rgba(91,157,240,.06); }
+.ab-sub { padding: 4px 2px 8px; color: var(--text-dim); font-size: 12px; }
+table.grid.mini { margin-top: 6px; }
+table.grid.mini th, table.grid.mini td { padding: 3px 8px; font-size: 11px; }
 .note { color: var(--yellow); font-size: 12px; font-style: italic; margin: 10px 0; }
 .edit-grid label { display: block; margin: 9px 0; color: var(--muted); font-size: 12px; }
 .edit-grid input, .edit-grid select { width: 100%; padding: 9px; background: var(--input-bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; font-family: 'Rajdhani'; font-size: 15px; }

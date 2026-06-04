@@ -1,6 +1,6 @@
 {
   "name": "plats-rcon-admin",
-  "version": "1.3.9",
+  "version": "1.3.10",
   "description": "PlaT's Gaming - CE Enhanced RCON Admin — control panel for Conan Exiles servers over RCON. No mods required.",
   "main": "main.js",
   "author": "",
