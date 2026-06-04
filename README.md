@@ -11,9 +11,9 @@ clean panel that talks to your server the same way any RCON tool does.
 
 ## Screenshots
 
-**The admin panel** — every tool one click away (shown with demo servers):
+**The admin panel** — every tool one click away, with the **live player map** (bottom-right). *(Server label is a demo; online-player names blurred for privacy.)*
 
-![PlaT's Gaming RCON Admin — action panel](docs/screenshots/02-action-grid.png)
+![PlaT's Gaming RCON Admin — action panel with live map](docs/screenshots/02-action-grid.png)
 
 **First run** — add your server (IP, RCON password, character name) and go:
 
