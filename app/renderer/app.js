@@ -486,8 +486,23 @@ async function showBuildingReport() {
 }
 
 // ---------- raid / destruction log ----------
-const RL_LABELS = {}; // best-effort; codes are shown numerically unless added here
-function RL_LABEL(t) { return RL_LABELS[t] || ('event ' + t); }
+// Best-effort labels inferred from each event type's data signature (Conan
+// strips the official enum names from shipping builds). Unknowns show #code.
+const RL_LABELS = {
+  86: 'Creature killed', 87: 'Item picked up', 88: 'Building piece', 89: 'Combat event',
+  91: 'Item taken (container)', 92: 'Item picked up', 93: 'Container looted',
+  94: 'Item stored (container)', 99: 'Container/door opened', 103: 'Player died',
+  109: 'Combat event', 111: 'Building event', 113: 'Pet died', 114: 'Thrall killed',
+  115: 'Pet killed', 116: 'Thrall knocked out', 122: 'Thrall event', 171: 'Building event',
+  172: 'Building event', 173: 'Building event', 174: 'Building event', 177: 'Item crafted',
+};
+function RL_LABEL(t) { return RL_LABELS[t] || ('event #' + t); }
+// Clean an objectName: numeric -> item name (via item DB); class -> readable.
+function prettyObj(o, db) {
+  if (!o) return '';
+  if (/^-?\d+$/.test(o)) { const m = db && db[o]; return m ? m.n : '#' + o; }
+  return String(o).replace(/_C$/, '').replace(/^(Wildlife_|pet_|BP_|Persistent|SK_)/, '').replace(/_+/g, ' ').trim();
+}
 async function showRaidLog() {
   $('dataTitle').textContent = 'Raid & Destruction Log';
   const body = $('dataBody'); body.innerHTML = ''; $('dataModal').classList.remove('hidden');
@@ -495,11 +510,12 @@ async function showRaidLog() {
   const bar = document.createElement('div'); bar.className = 'find-bar';
   bar.innerHTML = `<input id="rlQ" placeholder="filter by player / clan / object…" /><label class="muted" style="display:flex;align-items:center;gap:5px;white-space:nowrap"><input type="checkbox" id="rlRaids" checked> cross-clan only</label><button id="rlGo" class="primary-btn">Search</button>`;
   body.appendChild(bar);
-  body.appendChild(noteEl('Most recent first. "Attacker → Target". Event types show as codes — Conan doesn’t expose readable names over RCON.'));
+  body.appendChild(noteEl('Most recent first. "Attacker → Target". Event names are inferred from the event data — Conan doesn’t publish the codes — so they\'re best-effort (the # code is kept for reference).'));
   const list = document.createElement('div'); list.id = 'rlList'; body.appendChild(list);
   const moreWrap = document.createElement('div'); moreWrap.style.textAlign = 'center'; moreWrap.style.marginTop = '10px'; body.appendChild(moreWrap);
   const more = document.createElement('button'); more.className = 'mini-btn'; more.style.width = 'auto'; more.textContent = 'Load more';
   more.onclick = () => load(false);
+  const db = await getItemDb();
   async function load(reset) {
     if (reset) { offset = 0; list.innerHTML = '<div class="note">Loading…</div>'; }
     const res = await api.raidLog({ offset, filter, raidsOnly });
@@ -510,7 +526,8 @@ async function showRaidLog() {
       const row = document.createElement('div'); row.className = 'rl-row';
       const who = e.causer ? `<b style="color:#ff8a6a">${esc(e.causer)}</b>${e.causerGuild ? ` <span class="muted">[${esc(e.causerGuild)}]</span>` : ''}` : '<span class="muted">—</span>';
       const vic = e.owner ? `<b style="color:#facc15">${esc(e.owner)}</b>${e.ownerGuild ? ` <span class="muted">[${esc(e.ownerGuild)}]</span>` : ''}` : (e.ownerGuild ? `<span class="muted">[${esc(e.ownerGuild)}]</span>` : '<span class="muted">—</span>');
-      row.innerHTML = `<span class="rl-time muted">${e.time ? timeAgo(e.time) : ''}</span><span class="rl-main">${who} → ${vic} <span class="muted">· ${RL_LABEL(e.type)}${e.object ? ' · ' + esc(e.object) : ''}</span></span>`;
+      const obj = prettyObj(e.object, db);
+      row.innerHTML = `<span class="rl-time muted">${e.time ? timeAgo(e.time) : ''}</span><span class="rl-main">${who} → ${vic} <span class="rl-type">${esc(RL_LABEL(e.type))}</span>${obj ? ` <span class="muted">· ${esc(obj)}</span>` : ''} <span class="rl-code">#${e.type}</span></span>`;
       list.appendChild(row);
     });
     moreWrap.innerHTML = '';
