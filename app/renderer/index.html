@@ -163,6 +163,7 @@
       <label>RCON port <input id="cfgPort" placeholder="25575" /></label>
       <label>RCON password <input id="cfgPass" type="password" placeholder="from Game.ini [RconPlugin] RconPassword" /></label>
       <label>Your in-game character name <input id="cfgAdmin" placeholder="exact name — needed for Teleport / Summon" /></label>
+      <label class="check-row" title="On connect, runs MakeMeAdmin with the server's admin password so your character gets in-game admin rights automatically. You must be logged into the game for it to apply."><input type="checkbox" id="cfgMakeAdmin" /> <span>Make me admin in-game on connect</span></label>
       <details class="advanced">
         <summary>Advanced: console command overrides</summary>
         <p class="muted">Sent via <code>con &lt;idx&gt; &lt;cmd&gt;</code>. Adjust if a game update changes a command.</p>

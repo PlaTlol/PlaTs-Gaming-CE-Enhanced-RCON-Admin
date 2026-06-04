@@ -23,6 +23,7 @@ function newServer(partial = {}) {
     port: partial.port || 25575,
     password: partial.password || '',
     adminCharName: partial.adminCharName || '',
+    makeAdmin: !!partial.makeAdmin,
     timeout: partial.timeout || 8000,
     consoleCommands: { ...DEFAULT_CONSOLE, ...(partial.consoleCommands || {}) },
   };

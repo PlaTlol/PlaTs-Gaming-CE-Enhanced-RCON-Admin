@@ -217,6 +217,8 @@ body {
 .modal-card label { display: block; font-size: 12px; color: var(--muted); margin: 11px 0 0; font-weight: 600; letter-spacing: .5px; }
 .modal-card input, .modal-card select { display: block; width: 100%; margin-top: 4px; padding: 9px 10px; background: var(--input-bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; outline: none; font-family: 'Rajdhani'; font-size: 15px; }
 .modal-card input:focus { border-color: var(--red); }
+.modal-card label.check-row { display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text); text-transform: none; letter-spacing: 0; font-weight: 600; }
+.modal-card label.check-row input { width: auto; margin: 0; accent-color: var(--red); cursor: pointer; }
 .advanced { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 8px; }
 .advanced summary { cursor: pointer; color: var(--red-bright); font-weight: 600; }
 .muted { color: var(--muted); font-size: 11px; }

@@ -94,6 +94,20 @@ async function refreshPlayers() {
   players = res.players;
   setConn(true, `${s.name} · ${players.length} online`);
   renderPlayers();
+  maybeGrantAdmin(s);
+}
+// When a server opts into auto-admin, grant it once we have a live connection.
+// Retries on each (re)connect until the admin char is actually online, then
+// stops so we don't re-read the admin password on every manual refresh.
+let _adminGrantedFor = null;
+async function maybeGrantAdmin(s) {
+  if (!s || !s.makeAdmin || !s.adminCharName) { _adminGrantedFor = null; return; }
+  if (_adminGrantedFor === s.id) return;
+  try {
+    const r = await api.makeAdmin();
+    if (r && r.ok) { _adminGrantedFor = s.id; toast(`✓ ${r.message}`); }
+    // if offline, leave _adminGrantedFor unset so the next refresh tries again
+  } catch (e) { /* ignore — non-critical */ }
 }
 function renderPlayers() {
   const q = ($('playerSearch').value || '').toLowerCase();
@@ -488,13 +502,41 @@ async function showBuildingReport() {
 // ---------- raid / destruction log ----------
 // Best-effort labels inferred from each event type's data signature (Conan
 // strips the official enum names from shipping builds). Unknowns show #code.
+// Best-effort labels, inferred from each type's live data signature (which of
+// causer/owner/object columns are populated, and whether object is an item-DB
+// id, a building id, or a creature/follower class name). Conan strips the real
+// enum from the shipping build, so these are educated guesses — the raw # code
+// is always shown alongside for cross-checking.
 const RL_LABELS = {
-  86: 'Creature killed', 87: 'Item picked up', 88: 'Building piece', 89: 'Combat event',
-  91: 'Item taken (container)', 92: 'Item picked up', 93: 'Container looted',
-  94: 'Item stored (container)', 99: 'Container/door opened', 103: 'Player died',
-  109: 'Combat event', 111: 'Building event', 113: 'Pet died', 114: 'Thrall killed',
-  115: 'Pet killed', 116: 'Thrall knocked out', 122: 'Thrall event', 171: 'Building event',
-  172: 'Building event', 173: 'Building event', 174: 'Building event', 177: 'Item crafted',
+  86: 'Creature killed',        // wildlife class + attacker
+  87: 'Item dropped',           // loot bag / item, owner void/BLOB
+  88: 'Building piece',         // building id (± attacker)
+  89: 'Follower died',          // follower class, owner only, no attacker
+  90: 'Combat event',
+  91: 'Container looted',       // container placeable + looter, owner guild
+  92: 'Container accessed',     // container placeable + player (loudest event)
+  93: 'Container looted',       // looter + owner (cross-clan)
+  94: 'Item deposited',         // counterpart to looting
+  99: 'Container/door opened',  // building id + player
+  100: 'Item taken',            // item id + player
+  101: 'Combat event',
+  103: 'Player died',           // owner = the player, no attacker recorded
+  105: 'Player event',          // owner player only (login/respawn)
+  106: 'Follower placed',       // follower class + owner placing it
+  109: 'Follower died',
+  110: 'Follower placed',
+  111: 'Follower event',        // pet/follower class, owner void/BLOB
+  113: 'Follower died',
+  114: 'Follower killed',       // follower class + attacker
+  115: 'Follower killed',
+  116: 'Thrall knocked out',    // thrall class + attacker
+  117: 'Thrall captured',
+  118: 'Thrall event', 119: 'Thrall event', 121: 'Thrall event',
+  122: 'Thrall placed',         // thrall class, owner guild, no attacker
+  123: 'Thrall placed',
+  171: 'Building event', 172: 'Building event', 173: 'Building event', 174: 'Building event',
+  177: 'Crafting',              // owner guild, no object (station output)
+  178: 'Player event', 179: 'Follower event',
 };
 function RL_LABEL(t) { return RL_LABELS[t] || ('event #' + t); }
 // Clean an objectName: numeric -> item name (via item DB); class -> readable.
@@ -775,6 +817,7 @@ function openServerModal(id) {
   $('cfgPort').value = s ? s.port : 25575;
   $('cfgPass').value = s ? s.password : '';
   $('cfgAdmin').value = s ? s.adminCharName : '';
+  $('cfgMakeAdmin').checked = s ? !!s.makeAdmin : false;
   const cc = (s && s.consoleCommands) || {};
   $('cfgKill').value = cc.kill || '';
   $('cfgTp').value = cc.teleportSelf || '';
@@ -791,6 +834,7 @@ function readServerForm() {
     port: parseInt($('cfgPort').value, 10) || 25575,
     password: $('cfgPass').value,
     adminCharName: $('cfgAdmin').value.trim(),
+    makeAdmin: $('cfgMakeAdmin').checked,
     consoleCommands: {
       kill: $('cfgKill').value.trim() || 'Suicide',
       teleportSelf: $('cfgTp').value.trim() || 'TeleportPlayer',

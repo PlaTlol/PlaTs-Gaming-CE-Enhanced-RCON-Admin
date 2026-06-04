@@ -52,4 +52,5 @@ contextBridge.exposeInMainWorld('api', {
   raw: (cmd) => ipcRenderer.invoke('act:raw', cmd),
   broadcast: (msg) => ipcRenderer.invoke('act:broadcast', msg),
   topBuilders: () => ipcRenderer.invoke('act:topBuilders'),
+  makeAdmin: () => ipcRenderer.invoke('act:makeAdmin'),
 });
