@@ -148,6 +148,7 @@ const ACTIONS = {
   banManager: async () => showBanManager(),
   playerFinder: async () => showPlayerFinder(),
   buildingReport: async () => showBuildingReport(),
+  abandoned: async () => showAbandoned(),
   raidLog: async () => showRaidLog(),
   clanManager: async () => showClanManager(),
   broadcast: async () => showBroadcast(),
@@ -171,6 +172,7 @@ const ICONS = {
   banManager: SVG('<circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/>'),
   playerFinder: SVG('<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>'),
   buildingReport: SVG('<path d="M3 21h18"/><path d="M6 21V8l6-4 6 4v13"/><path d="M10 12h4M10 16h4"/>'),
+  abandoned: SVG('<path d="M19 6l-2 14H7L5 6"/><path d="M3 6h18"/><path d="M14 6V4a2 2 0 0 0-4 0v2"/>'),
   raidLog: SVG('<path d="M6 4l11 11M18 4L7 15"/><path d="M3.5 17.5l3 3M20.5 17.5l-3 3"/>'),
   clanManager: SVG('<path d="M12 2l8 3v6c0 5-3.5 8-8 11-4.5-3-8-6-8-11V5z"/>'),
   broadcast: SVG('<path d="M3 10v4l12 5V5L3 10z"/><path d="M15 8a4 4 0 0 1 0 8"/><path d="M6 14v3a1.5 1.5 0 0 0 3 0v-2"/>'),
@@ -195,7 +197,7 @@ const ICONS = {
 // Per-action icon colors — varied but theme-coherent (vivid on dark bg).
 const ICON_COLORS = {
   dashboard: '#5b9df0', banManager: '#e0243f', playerFinder: '#34d3c0',
-  buildingReport: '#f5c542', raidLog: '#f0832f', clanManager: '#a779f0',
+  buildingReport: '#f5c542', abandoned: '#e0243f', raidLog: '#f0832f', clanManager: '#a779f0',
   broadcast: '#5b9df0', rconConsole: '#4ade80',
   kick: '#f0832f', kill: '#e0243f',
   teleportTo: '#a779f0', summon: '#5b9df0', sendHome: '#4ade80',
@@ -483,6 +485,73 @@ async function showBuildingReport() {
   }
   $('brIdle').onchange = render;
   render();
+}
+
+async function showAbandoned() {
+  $('dataTitle').textContent = 'Abandoned-Base Cleanup';
+  const body = $('dataBody'); body.innerHTML = '';
+  $('dataModal').classList.remove('hidden');
+  body.appendChild(noteEl('Finds bases whose owner is inactive past the chosen threshold, plus bases whose owner was deleted/purged. Clans use their most-recent member login. Destroying is immediate (uses the game\'s buildingquery, no restart needed) and cannot be undone.'));
+
+  const ctl = document.createElement('div'); ctl.className = 'heat-controls';
+  ctl.innerHTML =
+    `<label class="muted" style="display:flex;align-items:center;gap:6px">Inactive for at least
+      <select id="abDays"><option value="7">7 days</option><option value="14" selected>14 days</option><option value="30">30 days</option><option value="60">60 days</option><option value="90">90 days</option></select>
+    </label>
+    <button id="abScan" class="mini-btn">Scan</button>
+    <span id="abSummary" class="muted"></span>`;
+  body.appendChild(ctl);
+
+  const tbl = document.createElement('table'); tbl.className = 'grid'; body.appendChild(tbl);
+  const KIND = { player: 'Player', clan: 'Clan', orphan: 'Deleted owner' };
+
+  async function scan() {
+    const days = parseInt($('abDays').value, 10) || 14;
+    $('abScan').disabled = true;
+    $('abSummary').textContent = 'Scanning…';
+    tbl.innerHTML = '';
+    const r = await api.abandonedBases({ days });
+    $('abScan').disabled = false;
+    if (!r.ok) { $('abSummary').textContent = r.message || 'Error'; return; }
+    let rows = r.owners.slice();
+    $('abSummary').textContent = `${r.count} abandoned owner(s) · ${r.totalPieces.toLocaleString()} pieces reclaimable`;
+    if (!rows.length) { tbl.innerHTML = `<tbody><tr><td class="muted">No owners inactive ${days}+ days, and no orphaned bases. 🎉 Your server is active — lower the threshold to review shorter-inactivity owners.</td></tr></tbody>`; return; }
+
+    function draw() {
+      tbl.innerHTML = '<thead><tr><th>Owner</th><th>Type</th><th>Inactive</th><th>Pieces</th><th></th></tr></thead>';
+      const tb = document.createElement('tbody');
+      rows.forEach((o) => {
+        const tr = document.createElement('tr');
+        const idle = o.kind === 'orphan' ? '<span class="rl-code">owner deleted</span>'
+          : (o.idleDays != null ? `${o.idleDays}d` + (o.kind === 'clan' ? ` <span class="muted">(${o.members || 0} members)</span>` : '') : 'unknown');
+        const td = document.createElement('td');
+        const btn = document.createElement('button'); btn.className = 'mini-btn danger-text'; btn.textContent = 'Destroy';
+        btn.onclick = async () => {
+          const ok = await api.confirm({ title: 'Destroy buildings',
+            message: `Permanently destroy ALL ${o.pieces.toLocaleString()} pieces owned by "${o.name}"? This cannot be undone.` });
+          if (!ok) return;
+          btn.disabled = true; btn.textContent = '…';
+          const res = await api.destroyOwner(o.ownerId);
+          if (res.ok) {
+            toast(`✓ Cleared ${o.name} (~${o.pieces.toLocaleString()} pieces)`);
+            rows = rows.filter((x) => x.ownerId !== o.ownerId);
+            const left = rows.reduce((s, x) => s + x.pieces, 0);
+            $('abSummary').textContent = `${rows.length} abandoned owner(s) · ${left.toLocaleString()} pieces reclaimable`;
+            draw();
+          } else { btn.disabled = false; btn.textContent = 'Destroy'; toast(res.message || 'Failed'); }
+        };
+        td.appendChild(btn);
+        tr.innerHTML = `<td>${esc(o.name)}</td><td>${KIND[o.kind] || o.kind}</td><td>${idle}</td><td>${o.pieces.toLocaleString()}</td>`;
+        tr.appendChild(td);
+        if (o.kind === 'orphan') tr.style.background = 'rgba(196,30,58,.10)';
+        tb.appendChild(tr);
+      });
+      tbl.appendChild(tb);
+    }
+    draw();
+  }
+  $('abScan').onclick = scan;
+  scan();
 }
 
 // ---------- raid / destruction log ----------

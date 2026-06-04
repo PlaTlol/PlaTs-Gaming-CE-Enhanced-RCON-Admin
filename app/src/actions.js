@@ -462,6 +462,78 @@ async function buildingReport(rcon, cfg) {
   return { ok: true, owners, totalPieces, totalObjects, ownerCount: owners.length };
 }
 
+// ---- ABANDONED-BASE CLEANUP -----------------------------------------------
+// Find bases whose owner is inactive past a threshold (or whose owner no longer
+// exists), so they can be bulk-destroyed to reclaim server resources. Unlike the
+// general Building Report, this computes idle time for CLANS (max member login)
+// and surfaces orphaned/deleted owners as prime cleanup targets.
+async function abandonedBases(rcon, cfg, opts = {}) {
+  const days = Math.max(1, toInt(opts.days) || 14);
+  const now = Math.floor(Date.now() / 1000);
+  const cutoff = now - days * 86400;
+  // pieces per owner (actual placed pieces)
+  const pieceRows = await sqlAll(rcon, (l, o) =>
+    `sql SELECT b.owner_id AS oid, COUNT(*) AS pieces FROM building_instances bi ` +
+    `JOIN buildings b ON b.object_id=bi.object_id GROUP BY b.owner_id ORDER BY pieces DESC LIMIT ${l} OFFSET ${o};`, 150);
+  // Clan activity: a SINGLE-TABLE grouped query resolves correctly (the bare
+  // `guild` column and grouped LEFT JOINs both come back as unreadable BLOB in
+  // Conan's sql, so we must group on the characters table directly).
+  const clanInfo = {};
+  (await sqlAll(rcon, (l, o) =>
+    `sql SELECT guild AS gid, MAX(lastTimeOnline) AS last, COUNT(*) AS members FROM characters ` +
+    `WHERE guild>0 GROUP BY guild LIMIT ${l} OFFSET ${o};`, 150))
+    .forEach((r) => { clanInfo[toInt(r.gid)] = { last: toInt(r.last) || null, members: toInt(r.members) }; });
+  // Guild names (small page so the ~10KB response cap can't truncate a page and
+  // make sqlAll stop early).
+  const guildName = {};
+  (await sqlAll(rcon, (l, o) => `sql SELECT guildId AS id, name FROM guilds LIMIT ${l} OFFSET ${o};`, 120))
+    .forEach((r) => { guildName[toInt(r.id)] = r.name; });
+  // Resolve player owners (those not matching a guild) by id chunks — plain
+  // WHERE-IN selects return char_name/lastTimeOnline correctly.
+  const charInfo = {};
+  const candidateIds = pieceRows.map((r) => toInt(r.oid)).filter((oid) => oid && guildName[oid] == null);
+  for (let i = 0; i < candidateIds.length; i += 100) {
+    const chunk = candidateIds.slice(i, i + 100).join(',');
+    if (!chunk) continue;
+    parseSqlTable(await rcon.command(`sql SELECT id, lastTimeOnline AS last, char_name AS name FROM characters WHERE id IN (${chunk});`)).rows
+      .forEach((r) => { charInfo[toInt(r.id)] = { last: toInt(r.last) || null, name: r.name }; });
+  }
+
+  const owners = [];
+  for (const r of pieceRows) {
+    const oid = toInt(r.oid);
+    if (!oid) continue; // skip server/world-owned (owner_id 0)
+    const pieces = toInt(r.pieces);
+    let last = null, kind, name, members = null;
+    if (guildName[oid] != null) { kind = 'clan'; name = (guildName[oid] && guildName[oid] !== 'void') ? guildName[oid] : `Clan #${oid}`; const ci = clanInfo[oid]; last = ci ? ci.last : null; members = ci ? ci.members : 0; }
+    else if (charInfo[oid]) { kind = 'player'; const ci = charInfo[oid]; name = (ci.name && ci.name !== 'void') ? ci.name : `Player #${oid}`; last = ci.last; }
+    else { kind = 'orphan'; name = `Deleted owner (#${oid})`; last = null; }
+    // Conservative: a PLAYER is only "abandoned" with a concrete old timestamp
+    // (never flag on missing data — an online player's lastTimeOnline is ~now, so
+    // active players can't qualify). Clans qualify when their newest member login
+    // is old (or they have no members). Orphans (owner row gone) always qualify.
+    let abandoned;
+    if (kind === 'orphan') abandoned = true;
+    else if (kind === 'clan') abandoned = (last == null) || (last < cutoff);
+    else abandoned = (last != null) && (last < cutoff);
+    if (!abandoned) continue;
+    owners.push({ ownerId: oid, name, kind, members, pieces,
+      last, idleDays: last ? Math.floor((now - last) / 86400) : null });
+  }
+  owners.sort((a, b) => b.pieces - a.pieces);
+  const totalPieces = owners.reduce((s, o) => s + o.pieces, 0);
+  return { ok: true, days, owners, count: owners.length, totalPieces };
+}
+
+// Destroy every building owned by an owner id (character OR clan). Uses the
+// game's own buildingquery command, which applies live (no restart needed).
+async function destroyOwnerBuildings(rcon, cfg, ownerId) {
+  const id = toInt(ownerId);
+  if (!id) throw new Error('Invalid owner id.');
+  const raw = await rcon.command(`buildingquery destroy ${id}`);
+  return { ok: true, title: 'Cleanup', message: `Destroyed all buildings owned by #${id}.`, raw };
+}
+
 // ---- RAID / DESTRUCTION LOG (game_events) ----------------------------------
 async function raidLog(rcon, cfg, opts = {}) {
   const off = toInt(opts.offset) || 0;
@@ -539,6 +611,6 @@ module.exports = {
   viewCharacter, editCharacter, deleteCharacter, removeBuildings, clearCooldowns,
   viewFeats, viewQuestFlags, viewInventory, buildingHeatmap, buildingOwnerAt, topBuilders,
   serverDashboard, listBans, banPlayer, unbanPlayer, whitelistPlayer, findCharacters,
-  buildingReport, raidLog, clanList, clanMembers, renameGuild, setGuildOwner, disbandGuild,
+  buildingReport, abandonedBases, destroyOwnerBuildings, raidLog, clanList, clanMembers, renameGuild, setGuildOwner, disbandGuild,
   livePlayerPositions, rawCommand, broadcastMessage,
 };

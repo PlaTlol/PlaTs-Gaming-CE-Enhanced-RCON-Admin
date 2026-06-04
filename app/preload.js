@@ -42,6 +42,8 @@ contextBridge.exposeInMainWorld('api', {
   whitelist: (id, on) => ipcRenderer.invoke('act:whitelist', id, on),
   findChars: (q) => ipcRenderer.invoke('act:findChars', q),
   buildingReport: () => ipcRenderer.invoke('act:buildingReport'),
+  abandonedBases: (opts) => ipcRenderer.invoke('act:abandonedBases', opts),
+  destroyOwner: (ownerId) => ipcRenderer.invoke('act:destroyOwner', ownerId),
   raidLog: (opts) => ipcRenderer.invoke('act:raidLog', opts),
   clanList: () => ipcRenderer.invoke('act:clanList'),
   clanMembers: (id) => ipcRenderer.invoke('act:clanMembers', id),
