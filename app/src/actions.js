@@ -305,20 +305,52 @@ async function buildingHeatmap(rcon, cfg, opts = {}) {
 }
 
 // Who owns the buildings near a world coordinate (for the heatmap click).
+// Resolve a set of building-owner ids to {name,type,last}. Owner names read via a
+// grouped LEFT JOIN come back as the literal "BLOB" in Conan's sql (notably the
+// player char_name), so resolve from SINGLE-TABLE queries instead: guild names
+// whole-table, player names by id chunk. Matches the original char-first ordering.
+async function resolveOwnerNames(rcon, ownerIds) {
+  const ids = [...new Set(ownerIds.map((x) => toInt(x)).filter(Boolean))];
+  const guildName = {};
+  (await sqlAll(rcon, (l, o) => `sql SELECT guildId AS id, name FROM guilds LIMIT ${l} OFFSET ${o};`, 120))
+    .forEach((r) => { guildName[toInt(r.id)] = r.name; });
+  const charInfo = {};
+  for (let i = 0; i < ids.length; i += 100) {
+    const chunk = ids.slice(i, i + 100).join(',');
+    if (!chunk) continue;
+    parseSqlTable(await rcon.command(`sql SELECT id, lastTimeOnline AS last, char_name AS name FROM characters WHERE id IN (${chunk});`)).rows
+      .forEach((r) => { charInfo[toInt(r.id)] = { name: r.name, last: toInt(r.last) || null }; });
+  }
+  const out = {};
+  for (const oid of ids) {
+    if (charInfo[oid]) out[oid] = { name: (charInfo[oid].name && charInfo[oid].name !== 'void') ? charInfo[oid].name : `Player #${oid}`, type: 'Player', last: charInfo[oid].last };
+    else if (guildName[oid] != null) out[oid] = { name: (guildName[oid] && guildName[oid] !== 'void') ? guildName[oid] : `Clan #${oid}`, type: 'Clan', last: null };
+    else out[oid] = { name: `Unknown (#${oid})`, type: 'Unknown', last: null };
+  }
+  return out;
+}
+
 async function buildingOwnerAt(rcon, cfg, { x, y, radius }) {
   const r = Number(radius) || 6000;
   const raw = await rcon.command(
-    `sql SELECT COALESCE(c.char_name, g.name) AS owner, b.owner_id AS owner_id, COUNT(*) AS pieces ` +
+    `sql SELECT b.owner_id AS owner_id, COUNT(*) AS pieces ` +
     `FROM actor_position ap JOIN buildings b ON b.object_id=ap.id ` +
-    `LEFT JOIN characters c ON c.id=b.owner_id LEFT JOIN guilds g ON g.guildId=b.owner_id ` +
     `WHERE ap.x BETWEEN ${Math.round(x - r)} AND ${Math.round(x + r)} ` +
     `AND ap.y BETWEEN ${Math.round(y - r)} AND ${Math.round(y + r)} ` +
     `GROUP BY b.owner_id ORDER BY pieces DESC LIMIT 1;`
   );
   const { rows } = parseSqlTable(raw);
   if (!rows.length) return { ok: true, owner: null };
-  const o = rows[0];
-  return { ok: true, owner: (o.owner && o.owner !== 'void') ? o.owner : null, ownerId: toInt(o.owner_id), pieces: toInt(o.pieces) };
+  const oid = toInt(rows[0].owner_id); const pieces = toInt(rows[0].pieces);
+  // resolve the single owner name via single-table lookups (joined name -> BLOB)
+  let name = null;
+  const ch = parseSqlTable(await rcon.command(`sql SELECT char_name AS n FROM characters WHERE id=${oid} LIMIT 1;`)).rows[0];
+  if (ch && ch.n && ch.n !== 'void' && ch.n !== 'BLOB') name = ch.n;
+  else {
+    const g = parseSqlTable(await rcon.command(`sql SELECT name AS n FROM guilds WHERE guildId=${oid} LIMIT 1;`)).rows[0];
+    if (g && g.n && g.n !== 'void') name = g.n;
+  }
+  return { ok: true, owner: name, ownerId: oid, pieces };
 }
 
 // Live positions of currently-online players (for the bottom-right mini-map).
@@ -354,13 +386,18 @@ async function broadcastMessage(rcon, cfg, msg) {
 // Counts real pieces (building_instances) and resolves owner to a player OR a
 // clan name (owner_id can be either a character id or a guild id).
 async function topBuilders(rcon, cfg, limit = 25) {
-  const raw = await rcon.command(
-    `sql SELECT b.owner_id AS owner_id, COALESCE(c.char_name, g.name) AS name, COUNT(*) AS pieces ` +
+  const lim = toInt(limit) || 25;
+  const top = parseSqlTable(await rcon.command(
+    `sql SELECT b.owner_id AS owner_id, COUNT(*) AS pieces ` +
     `FROM building_instances bi JOIN buildings b ON b.object_id=bi.object_id ` +
-    `LEFT JOIN characters c ON c.id=b.owner_id LEFT JOIN guilds g ON g.guildId=b.owner_id ` +
-    `GROUP BY b.owner_id ORDER BY pieces DESC LIMIT ${toInt(limit) || 25};`
-  );
-  return { ok: true, title: 'Top Builders', table: parseSqlTable(raw), raw };
+    `GROUP BY b.owner_id ORDER BY pieces DESC LIMIT ${lim};`
+  )).rows;
+  const info = await resolveOwnerNames(rcon, top.map((r) => r.owner_id));
+  const rows = top.map((r) => {
+    const oid = toInt(r.owner_id);
+    return { owner_id: oid, name: (info[oid] && info[oid].name) || `Unknown (#${oid})`, pieces: toInt(r.pieces) };
+  });
+  return { ok: true, title: 'Top Builders', table: { columns: ['owner_id', 'name', 'pieces'], rows } };
 }
 
 // ---- SERVER DASHBOARD -----------------------------------------------------
@@ -435,25 +472,24 @@ async function findCharacters(rcon, cfg, query) {
 async function buildingReport(rcon, cfg) {
   const now = Math.floor(Date.now() / 1000);
   // "objects" = rows in buildings (structure roots + standalone placeables) per
-  // owner, with owner name/type/last-online. Light query.
+  // owner. NO name join here — joined owner names come back as "BLOB" in Conan's
+  // sql, so names/last-online are resolved separately via resolveOwnerNames().
   const objRows = await sqlAll(rcon, (l, o) =>
-    `sql SELECT b.owner_id AS oid, COUNT(*) AS objects, c.char_name AS cname, c.lastTimeOnline AS last, g.name AS gname ` +
-    `FROM buildings b LEFT JOIN characters c ON c.id=b.owner_id LEFT JOIN guilds g ON g.guildId=b.owner_id ` +
+    `sql SELECT b.owner_id AS oid, COUNT(*) AS objects FROM buildings b ` +
     `GROUP BY b.owner_id ORDER BY objects DESC LIMIT ${l} OFFSET ${o};`, 200);
   // "pieces" = actual placed building pieces, which live in building_instances.
   const pieceRows = await sqlAll(rcon, (l, o) =>
     `sql SELECT b.owner_id AS oid, COUNT(*) AS pieces FROM building_instances bi ` +
     `JOIN buildings b ON b.object_id=bi.object_id GROUP BY b.owner_id ORDER BY pieces DESC LIMIT ${l} OFFSET ${o};`, 200);
   const pieceMap = {}; pieceRows.forEach((r) => { pieceMap[toInt(r.oid)] = toInt(r.pieces); });
+  const info = await resolveOwnerNames(rcon, objRows.map((r) => r.oid));
   const owners = objRows.map((r) => {
-    const isChar = r.cname && r.cname !== 'void';
-    const isClan = !isChar && r.gname && r.gname !== 'void';
-    const last = toInt(r.last); const oid = toInt(r.oid);
+    const oid = toInt(r.oid);
+    const o = info[oid] || { name: `Unknown (#${oid})`, type: 'Unknown', last: null };
     return {
       ownerId: oid, pieces: pieceMap[oid] || 0, objects: toInt(r.objects),
-      name: isChar ? r.cname : (isClan ? r.gname : `Unknown (#${oid})`),
-      type: isChar ? 'Player' : (isClan ? 'Clan' : 'Unknown'),
-      last, idleDays: (isChar && last) ? Math.floor((now - last) / 86400) : null,
+      name: o.name, type: o.type, last: o.last,
+      idleDays: (o.type === 'Player' && o.last) ? Math.floor((now - o.last) / 86400) : null,
     };
   });
   owners.sort((a, b) => (b.pieces - a.pieces) || (b.objects - a.objects));
