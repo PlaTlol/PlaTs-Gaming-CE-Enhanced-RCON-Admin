@@ -56,6 +56,7 @@ function mimeFor(file) {
 }
 
 let win;
+let mapWin = null;              // popped-out live map window (at most one)
 let cfg = null;                 // { servers, activeServerId }
 const conns = new Map();        // serverId -> RconClient
 
@@ -284,6 +285,28 @@ ipcMain.handle('update:check', async () => {
   } catch (err) {
     return { ok: false, updateAvailable: false, current, message: err.message };
   }
+});
+
+ipcMain.handle('map:popout', () => {
+  if (mapWin && !mapWin.isDestroyed()) { mapWin.focus(); return { ok: true }; }
+  mapWin = new BrowserWindow({
+    width: 720,
+    height: 760,
+    minWidth: 300,
+    minHeight: 320,
+    backgroundColor: '#070a12',
+    title: 'Live Map',
+    icon: path.join(__dirname, 'icon.ico'),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  mapWin.removeMenu();
+  mapWin.loadFile(path.join(__dirname, 'renderer', 'index.html'), { search: 'popout=map' });
+  mapWin.on('closed', () => { mapWin = null; });
+  return { ok: true };
 });
 
 ipcMain.handle('item:db', () => itemDb());

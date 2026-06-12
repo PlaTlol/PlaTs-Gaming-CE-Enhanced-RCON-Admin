@@ -1159,12 +1159,23 @@ async function refreshMiniMap() {
   try { const res = await api.livePositions(); if (res && res.ok) _miniPlayers = res.players || []; } catch (e) {}
   drawMini();
 }
-const MINI_SIZES = { s: 230, m: 330, l: 452 };
+// Docked sizes stay within the 360px output column so the map never covers the
+// action buttons (the center column). Pop out the map for a bigger view.
+const MINI_SIZES = { s: 230, l: 324 };
+const IS_POPOUT = new URLSearchParams(location.search).get('popout') === 'map';
 function applyMiniSize() {
-  const sz = localStorage.getItem('miniSize') || 's';
   const mm = $('miniMap'); if (!mm) return;
+  const c = $('miniCanvas');
+  if (IS_POPOUT) {
+    // Fill the popout window with a centered square map.
+    const head = mm.querySelector('.mini-head');
+    const px = Math.max(120, Math.min(window.innerWidth - 16, window.innerHeight - (head ? head.offsetHeight : 32) - 16));
+    c.width = px; c.height = px; drawMini(); return;
+  }
+  let sz = localStorage.getItem('miniSize') || 's';
+  if (sz !== 's' && sz !== 'l') sz = 's'; // migrate old 'm'
   mm.classList.remove('size-s', 'size-m', 'size-l'); mm.classList.add('size-' + sz);
-  const c = $('miniCanvas'); const px = MINI_SIZES[sz] || 230; c.width = px; c.height = px;
+  const px = MINI_SIZES[sz] || 230; c.width = px; c.height = px;
   drawMini();
 }
 function startMiniMap() {
@@ -1175,10 +1186,10 @@ function startMiniMap() {
   if (localStorage.getItem('miniCollapsed') === '1') $('miniMap').classList.add('collapsed');
   $('miniCollapse').textContent = $('miniMap').classList.contains('collapsed') ? '▴' : '▾';
   $('miniSize').onclick = () => {
-    const order = ['s', 'm', 'l'];
-    const next = order[(order.indexOf(localStorage.getItem('miniSize') || 's') + 1) % order.length];
+    const next = (localStorage.getItem('miniSize') === 'l') ? 's' : 'l';
     localStorage.setItem('miniSize', next); applyMiniSize();
   };
+  if ($('miniPopout')) $('miniPopout').onclick = () => api.popoutMap();
   $('miniMapSel').onchange = (e) => { _miniKey = e.target.value; drawMini(); };
   $('miniCollapse').onclick = () => {
     const c = $('miniMap').classList.toggle('collapsed');
@@ -1215,6 +1226,15 @@ async function checkForUpdate() {
 
 // ---------- boot ----------
 (async function init() {
+  if (IS_POPOUT) {
+    // Map-only window: reuse the live map rendering, skip the full admin UI.
+    document.body.classList.add('popout-map');
+    document.title = 'Live Map';
+    applyCfg(await api.getServers()); // needed so activeServer() resolves
+    window.addEventListener('resize', applyMiniSize);
+    startMiniMap();
+    return;
+  }
   const cfg = await api.getServers();
   applyCfg(cfg);
   if (!servers.length) {

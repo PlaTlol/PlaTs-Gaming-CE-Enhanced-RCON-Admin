@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('api', {
   confirm: (opts) => ipcRenderer.invoke('confirm', opts),
   openExternal: (url) => ipcRenderer.invoke('open:external', url),
   checkUpdate: () => ipcRenderer.invoke('update:check'),
+  popoutMap: () => ipcRenderer.invoke('map:popout'),
 
   // players
   listPlayers: () => ipcRenderer.invoke('players:list'),
