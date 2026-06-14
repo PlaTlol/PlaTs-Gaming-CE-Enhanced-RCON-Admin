@@ -55,7 +55,10 @@
           <span>ONLINE PLAYERS</span>
           <span id="playerCount" class="count">0</span>
         </div>
-        <input id="playerSearch" class="search" placeholder="Filter players…" />
+        <div class="search-wrap">
+          <input id="playerSearch" class="search" placeholder="Filter players…" />
+          <button id="playerSearchClear" class="search-clear hidden" title="Clear filter" aria-label="Clear filter">✕</button>
+        </div>
         <ul id="playerList" class="player-list"></ul>
       </div>
 
@@ -145,7 +148,7 @@
       <button id="miniPopout" class="mini-x" title="Pop out map to its own window">⧉</button>
       <button id="miniCollapse" class="mini-x" title="Hide map">▾</button>
     </div>
-    <div class="mini-sub">↻ refreshes once per minute</div>
+    <div class="mini-sub">↻ refreshes every 30 seconds</div>
     <div class="mini-body">
       <canvas id="miniCanvas" width="230" height="230"></canvas>
       <div id="miniTip" class="mini-tip hidden"></div>
@@ -190,6 +193,20 @@
         <button id="deleteServerBtn" class="ghost-btn danger-text hidden">Delete</button>
         <button id="cancelServer" class="ghost-btn">Cancel</button>
         <button id="saveServer" class="primary-btn">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- "What's New" patch-notes modal (shown once per new version) -->
+  <div id="whatsNewModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>What's New <span id="wnVersion" class="wn-version"></span></h3>
+        <button id="wnClose" class="icon-btn">✕</button>
+      </div>
+      <div id="wnBody" class="wn-body"></div>
+      <div class="modal-actions end">
+        <button id="wnOk" class="primary-btn">Got it</button>
       </div>
     </div>
   </div>

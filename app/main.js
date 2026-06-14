@@ -274,6 +274,8 @@ async function fetchLatestRelease() {
   } catch (e) { /* no manifest -> no update */ }
   return null;
 }
+ipcMain.handle('app:version', () => app.getVersion());
+
 ipcMain.handle('update:check', async () => {
   const current = app.getVersion();
   try {

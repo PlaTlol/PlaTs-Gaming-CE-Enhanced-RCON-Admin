@@ -28,7 +28,11 @@ clean panel that talks to your server the same way any RCON tool does.
 - **Interactions** — Teleport to player, Summon player, Send home.
 - **Tools** — Edit / Delete character, Remove buildings, Clear cooldowns,
   View feats / quest flags, **View inventory (with item icons)**, **building heatmap on the in-game map**.
-- **Server tools** — live **Dashboard**, **Ban/Whitelist manager**, **Player finder**
+- **Live player map** — resize between **Normal** and **Large** (kept within the output
+  column so it never covers your action buttons), or **pop it out** into its own
+  resizable window.
+- **Compact action grid** — every action tile fits on screen at once, no scrolling.
+- **Server tools** — **Ban/Whitelist manager**, **Player finder**
   (offline players too), **Building / land-claim report**, **Raid & destruction log**,
   **Clan manager**.
 

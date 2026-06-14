@@ -16,6 +16,9 @@ Fully **templatable**: anyone can run it, click **+ Add Server**, and plug in
   switch, double-click (or **Edit**) to change its settings, **+ Add Server** to
   add more.
 - **Live player list** per server from `listplayers`, with filter.
+- **Live player map** — resizable (Normal / Large) inside the output column, or
+  pop it out into its own window (`index.html?popout=map`) reusing the same
+  map rendering.
 - **No credentials in the bundle** — each server's settings (including the RCON
   password) are stored in your per-user data folder, never inside the shared app.
 

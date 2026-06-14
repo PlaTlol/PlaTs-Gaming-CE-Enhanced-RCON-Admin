@@ -749,17 +749,23 @@ async function disbandClan(c) {
 // Both maps live in one merged "Enhanced" world; Siptah is offset at x≈+1.58M.
 // Calibration is stored per map as offsets (dx,dy) from a base center so the
 // sliders stay usable even for Siptah's far-away coordinates.
+// spanX/spanY are independent so the map need not cover the same world distance
+// horizontally and vertically — this is what makes calibrated positions exact.
 const MAP_DEFS = {
-  exiled: { img: 'assets/maps/exiled.jpg', base: { cx: 0, cy: 0 }, span: 820000 },
-  siptah: { img: 'assets/maps/siptah.jpg', base: { cx: 1578000, cy: 115000 }, span: 720000 },
+  // Exiled center/scale calibrated live against in-game coords (2026-06).
+  exiled: { img: 'assets/maps/exiled.jpg', base: { cx: 63690, cy: -39734 }, spanX: 825404, spanY: 825077 },
+  siptah: { img: 'assets/maps/siptah.jpg', base: { cx: 1578000, cy: 115000 }, spanX: 720000, spanY: 720000 },
 };
 function loadCal(mapKey) {
-  const def = { dx: 0, dy: 0, span: MAP_DEFS[mapKey].span, flipY: false };
-  try { const j = JSON.parse(localStorage.getItem('heatcal_' + mapKey)); if (j) return { ...def, ...j }; } catch (e) {}
+  const d = MAP_DEFS[mapKey];
+  const def = { dx: 0, dy: 0, spanX: d.spanX, spanY: d.spanY, flipY: false };
+  // Key is versioned (heatcal2_) so calibrations saved against the old default
+  // center are discarded — everyone picks up the accurate baked-in base above.
+  try { const j = JSON.parse(localStorage.getItem('heatcal2_' + mapKey)); if (j) return { ...def, ...j }; } catch (e) {}
   return def;
 }
-function saveCal(mapKey, cal) { try { localStorage.setItem('heatcal_' + mapKey, JSON.stringify(cal)); } catch (e) {} }
-function effCal(mapKey, cal) { const b = MAP_DEFS[mapKey].base; return { cx: b.cx + cal.dx, cy: b.cy + cal.dy, span: cal.span, flipY: cal.flipY }; }
+function saveCal(mapKey, cal) { try { localStorage.setItem('heatcal2_' + mapKey, JSON.stringify(cal)); } catch (e) {} }
+function effCal(mapKey, cal) { const b = MAP_DEFS[mapKey].base; return { cx: b.cx + cal.dx, cy: b.cy + cal.dy, spanX: cal.spanX, spanY: cal.spanY, flipY: cal.flipY }; }
 function loadImage(src) {
   return new Promise((resolve) => { const i = new Image(); i.onload = () => resolve(i); i.onerror = () => resolve(null); i.src = src; });
 }
@@ -773,6 +779,7 @@ async function openHeatmap() {
   let mapKey = 'exiled';
   let cal = loadCal(mapKey);
   let cells = []; let curBin = 7000; let bg = 'map';
+  let view = { z: 1, ox: 0, oy: 0 }; // scroll-wheel zoom + drag-to-pan viewport
   const imgCache = {};
   const curImg = async () => { if (!(mapKey in imgCache)) imgCache[mapKey] = await loadImage(MAP_DEFS[mapKey].img); return imgCache[mapKey]; };
   let mapImg = await curImg();
@@ -787,31 +794,28 @@ async function openHeatmap() {
     `<span id="heatCount" class="muted"></span>`;
   body.appendChild(controls);
 
-  const calRow = document.createElement('div'); calRow.className = 'heat-controls'; calRow.id = 'calRow';
-  calRow.innerHTML =
-    `<span class="muted">Align&nbsp;to&nbsp;map:</span>` +
-    `<label class="muted">Zoom<input id="calSpan" type="range" min="200000" max="1300000" step="5000"></label>` +
-    `<label class="muted">X<input id="calX" type="range" min="-400000" max="400000" step="5000"></label>` +
-    `<label class="muted">Y<input id="calY" type="range" min="-400000" max="400000" step="5000"></label>` +
-    `<label class="muted">Flip&nbsp;Y<input id="calFlip" type="checkbox"></label>` +
-    `<button id="calReset" class="mini-btn" style="flex:0 0 auto">Reset</button>`;
-  body.appendChild(calRow);
-
   const canvas = document.createElement('canvas'); canvas.id = 'heatCanvas'; canvas.width = 720; canvas.height = 720;
   body.appendChild(canvas);
   const info = document.createElement('div'); info.className = 'note'; info.id = 'heatInfo';
-  info.textContent = 'Click a cluster to see who owns it. Use the Align sliders so clusters line up with the map.';
+  const HINT = 'Click a cluster to see who owns it. Scroll to zoom, drag to pan.';
+  info.textContent = HINT;
   body.appendChild(info);
 
-  const syncSliders = () => { $('calX').value = cal.dx; $('calY').value = cal.dy; $('calSpan').value = cal.span; $('calFlip').checked = cal.flipY; };
-  const redraw = () => drawHeat(canvas, cells, { mapImg: bg === 'map' ? mapImg : null, cal: effCal(mapKey, cal) });
+  const W = canvas.width, H = canvas.height;
+  // Keep the zoomed map from being dragged off the canvas edges.
+  const clampView = () => {
+    if (view.z <= 1) { view = { z: 1, ox: 0, oy: 0 }; return; }
+    view.ox = Math.min(0, Math.max(W * (1 - view.z), view.ox));
+    view.oy = Math.min(0, Math.max(H * (1 - view.z), view.oy));
+  };
+  const redraw = () => drawHeat(canvas, cells, { mapImg: bg === 'map' ? mapImg : null, cal: effCal(mapKey, cal), view });
   async function load(ownerId) {
     info.textContent = 'Loading…';
     const res = await api.heatmap({ map: mapKey, ...(ownerId ? { ownerId } : {}) });
     if (!res.ok) { $('heatCount').textContent = res.message; info.textContent = res.message; return; }
     cells = res.cells; curBin = res.bin || 7000;
     $('heatCount').textContent = `${res.count} buildings · ${res.cellCount} clusters`;
-    info.textContent = 'Click a cluster to see who owns it.';
+    info.textContent = HINT;
     redraw();
   }
 
@@ -821,20 +825,39 @@ async function openHeatmap() {
     top.table.rows.forEach((r) => { const o = document.createElement('option'); o.value = r.owner_id; o.textContent = `${r.name && r.name !== 'void' ? r.name : 'Unknown'} (${r.pieces})`; sel.appendChild(o); });
     sel.onchange = () => load(sel.value);
   }
-  $('heatMap').onchange = async (e) => { mapKey = e.target.value; cal = loadCal(mapKey); mapImg = await curImg(); syncSliders(); await load($('heatOwner').value); };
-  $('heatBg').onchange = (e) => { bg = e.target.value; $('calRow').style.display = bg === 'map' ? 'flex' : 'none'; redraw(); };
+  $('heatMap').onchange = async (e) => { mapKey = e.target.value; cal = loadCal(mapKey); mapImg = await curImg(); view = { z: 1, ox: 0, oy: 0 }; await load($('heatOwner').value); };
+  $('heatBg').onchange = (e) => { bg = e.target.value; redraw(); };
   $('heatReload').onclick = () => load($('heatOwner').value);
-  const onCal = () => { cal = { dx: +$('calX').value, dy: +$('calY').value, span: +$('calSpan').value, flipY: $('calFlip').checked }; saveCal(mapKey, cal); redraw(); };
-  $('calSpan').oninput = onCal; $('calX').oninput = onCal; $('calY').oninput = onCal; $('calFlip').onchange = onCal;
-  $('calReset').onclick = () => { cal = { dx: 0, dy: 0, span: MAP_DEFS[mapKey].span, flipY: false }; saveCal(mapKey, cal); syncSliders(); redraw(); };
 
-  // click -> owner: convert click to absolute world coords (incl. Siptah offset)
-  // and ask the server who owns the buildings around that spot.
-  canvas.onclick = async (ev) => {
-    if (!canvas._toWorld) return;
+  // ---- scroll-wheel zoom (centered on the cursor) + drag-to-pan ----
+  const canvasPx = (ev) => { const rect = canvas.getBoundingClientRect(); return { x: (ev.clientX - rect.left) * (W / rect.width), y: (ev.clientY - rect.top) * (H / rect.height) }; };
+  canvas.onwheel = (ev) => {
+    ev.preventDefault();
+    const { x: px, y: py } = canvasPx(ev);
+    const zNew = Math.min(8, Math.max(1, view.z * (ev.deltaY < 0 ? 1.15 : 1 / 1.15)));
+    const mx = (px - view.ox) / view.z, my = (py - view.oy) / view.z; // point under cursor, in unzoomed map space
+    view.z = zNew; view.ox = px - mx * zNew; view.oy = py - my * zNew; // keep that point under the cursor
+    clampView(); redraw();
+    canvas.style.cursor = view.z > 1 ? 'grab' : 'default';
+  };
+  let pan = null, dragged = false;
+  canvas.onmousedown = (ev) => { if (view.z <= 1) return; pan = { x: ev.clientX, y: ev.clientY, ox: view.ox, oy: view.oy }; dragged = false; canvas.style.cursor = 'grabbing'; };
+  canvas.onmousemove = (ev) => {
+    if (!pan) return;
     const rect = canvas.getBoundingClientRect();
-    const px = (ev.clientX - rect.left) * (canvas.width / rect.width);
-    const py = (ev.clientY - rect.top) * (canvas.height / rect.height);
+    const dx = (ev.clientX - pan.x) * (W / rect.width), dy = (ev.clientY - pan.y) * (H / rect.height);
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragged = true;
+    view.ox = pan.ox + dx; view.oy = pan.oy + dy; clampView(); redraw();
+  };
+  const endPan = () => { if (pan) { pan = null; canvas.style.cursor = view.z > 1 ? 'grab' : 'default'; } };
+  canvas.onmouseup = endPan; canvas.onmouseleave = endPan;
+
+  // Click a cluster -> who owns the buildings around that spot (ignore the click
+  // that ends a drag-pan). _toWorld already accounts for the zoom/pan viewport.
+  canvas.onclick = async (ev) => {
+    if (dragged) { dragged = false; return; }
+    if (!canvas._toWorld) return;
+    const { x: px, y: py } = canvasPx(ev);
     const w = canvas._toWorld(px, py);
     info.textContent = 'Looking up owner…';
     const res = await api.ownerAt({ x: w.x, y: w.y, radius: Math.max(4000, curBin) });
@@ -847,8 +870,6 @@ async function openHeatmap() {
     }
   };
 
-  syncSliders();
-  $('calRow').style.display = bg === 'map' ? 'flex' : 'none';
   await load('');
 }
 
@@ -857,20 +878,16 @@ async function openHeatmap() {
 // canvas so the click handler can map a click back to world coordinates.
 function drawHeat(canvas, cells, opts = {}) {
   const ctx = canvas.getContext('2d'); const W = canvas.width, H = canvas.height;
+  const view = opts.view || { z: 1, ox: 0, oy: 0 };
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, W, H); ctx.fillStyle = '#05070d'; ctx.fillRect(0, 0, W, H);
-  let toPix, toWorld;
+  // toMap/fromMap convert world <-> *unzoomed* map pixels; the view (zoom+pan)
+  // is layered on top so one calibration works at any zoom level.
+  let toMap, fromMap;
   if (opts.mapImg) {
-    ctx.drawImage(opts.mapImg, 0, 0, W, H);
-    ctx.fillStyle = 'rgba(5,7,13,0.42)'; ctx.fillRect(0, 0, W, H); // darken so heat reads
-    const { cx, cy, span, flipY } = opts.cal;
-    toPix = (p) => ({
-      x: (0.5 + (p.x - cx) / span) * W,
-      y: (flipY ? (0.5 - (p.y - cy) / span) : (0.5 + (p.y - cy) / span)) * H,
-    });
-    toWorld = (px, py) => ({
-      x: cx + (px / W - 0.5) * span,
-      y: cy + (flipY ? (0.5 - py / H) : (py / H - 0.5)) * span,
-    });
+    const { cx, cy, spanX, spanY, flipY } = opts.cal;
+    toMap = (p) => ({ x: (0.5 + (p.x - cx) / spanX) * W, y: (flipY ? (0.5 - (p.y - cy) / spanY) : (0.5 + (p.y - cy) / spanY)) * H });
+    fromMap = (mx, my) => ({ x: cx + (mx / W - 0.5) * spanX, y: cy + (flipY ? (0.5 - my / H) : (my / H - 0.5)) * spanY });
   } else {
     const pad = 18;
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -880,25 +897,36 @@ function drawHeat(canvas, cells, opts = {}) {
     }
     if (!Number.isFinite(minX)) { minX = -400000; maxX = 400000; minY = -400000; maxY = 400000; }
     const span = Math.max(maxX - minX || 1, maxY - minY || 1);
-    toPix = (p) => ({ x: pad + ((p.x - minX) / span) * (W - 2 * pad), y: H - pad - ((p.y - minY) / span) * (H - 2 * pad) });
-    toWorld = (px, py) => ({ x: minX + ((px - pad) / (W - 2 * pad)) * span, y: minY + ((H - pad - py) / (H - 2 * pad)) * span });
+    toMap = (p) => ({ x: pad + ((p.x - minX) / span) * (W - 2 * pad), y: H - pad - ((p.y - minY) / span) * (H - 2 * pad) });
+    fromMap = (mx, my) => ({ x: minX + ((mx - pad) / (W - 2 * pad)) * span, y: minY + ((H - pad - my) / (H - 2 * pad)) * span });
   }
-  canvas._toPix = toPix; canvas._toWorld = toWorld;
-  if (!cells.length) return;
-  const maxCount = cells.reduce((m, c) => Math.max(m, c.count), 1);
-  ctx.globalCompositeOperation = 'lighter';
-  for (const p of cells) {
-    const q = toPix(p);
-    if (q.x < -20 || q.x > W + 20 || q.y < -20 || q.y > H + 20) continue;
-    const t = Math.sqrt(p.count / maxCount);        // density 0..1 (sqrt = softer)
-    const r = 5 + t * 16;                            // denser cluster = bigger glow
-    const a = 0.30 + t * 0.45;
-    const g = ctx.createRadialGradient(q.x, q.y, 0, q.x, q.y, r);
-    g.addColorStop(0, `rgba(255,${Math.round(170 - t * 150)},40,${a})`); // yellow->red by density
-    g.addColorStop(1, 'rgba(255,80,40,0)');
-    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, Math.PI * 2); ctx.fill();
+  // Composite transforms (incl. zoom/pan) for the click handler's hit-testing.
+  canvas._toPix = (p) => { const m = toMap(p); return { x: m.x * view.z + view.ox, y: m.y * view.z + view.oy }; };
+  canvas._toWorld = (px, py) => fromMap((px - view.ox) / view.z, (py - view.oy) / view.z);
+
+  ctx.save();
+  ctx.translate(view.ox, view.oy); ctx.scale(view.z, view.z);
+  if (opts.mapImg) {
+    ctx.drawImage(opts.mapImg, 0, 0, W, H);
+    ctx.fillStyle = 'rgba(5,7,13,0.42)'; ctx.fillRect(0, 0, W, H); // darken so heat reads
   }
-  ctx.globalCompositeOperation = 'source-over';
+  if (cells.length) {
+    const maxCount = cells.reduce((m, c) => Math.max(m, c.count), 1);
+    ctx.globalCompositeOperation = 'lighter';
+    for (const p of cells) {
+      const q = toMap(p); // unzoomed map px; the ctx transform applies zoom/pan
+      if (q.x < -20 || q.x > W + 20 || q.y < -20 || q.y > H + 20) continue;
+      const t = Math.sqrt(p.count / maxCount);        // density 0..1 (sqrt = softer)
+      const r = 5 + t * 16;                            // denser cluster = bigger glow
+      const a = 0.30 + t * 0.45;
+      const g = ctx.createRadialGradient(q.x, q.y, 0, q.x, q.y, r);
+      g.addColorStop(0, `rgba(255,${Math.round(170 - t * 150)},40,${a})`); // yellow->red by density
+      g.addColorStop(1, 'rgba(255,80,40,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+  ctx.restore();
 }
 
 // ---------- server modal (add / edit) ----------
@@ -968,7 +996,11 @@ $('deleteServerBtn').onclick = async () => {
 };
 
 $('refreshBtn').onclick = refreshPlayers;
-$('playerSearch').oninput = renderPlayers;
+function updateSearchClear() { $('playerSearchClear').classList.toggle('hidden', !$('playerSearch').value); }
+$('playerSearch').oninput = () => { updateSearchClear(); renderPlayers(); };
+$('playerSearch').addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('playerSearch').value) { e.preventDefault(); clearPlayerSearch(); } });
+function clearPlayerSearch() { const inp = $('playerSearch'); inp.value = ''; updateSearchClear(); renderPlayers(); inp.focus(); }
+$('playerSearchClear').onclick = clearPlayerSearch;
 $('clearOut').onclick = () => { $('outBody').innerHTML = '<div class="hint">Cleared.</div>'; };
 
 // ---------- support box (bottom-right) ----------
@@ -1092,21 +1124,31 @@ async function showRconConsole() {
 
 // ---------- right-click player context menu ----------
 function closeCtx() { const m = $('ctxMenu'); if (m) m.remove(); }
-function showCtxMenu(ev, p) {
+// opts.onMap adds a "Set as Target" item; opts.coords adds "Copy Coords".
+// These are map-only — the left-side player list calls showCtxMenu(ev, p) plain.
+function showCtxMenu(ev, p, opts = {}) {
   ev.preventDefault(); closeCtx();
   const m = document.createElement('div'); m.id = 'ctxMenu'; m.className = 'ctx-menu';
+  // Name header — disambiguates which player when dots overlap on the map.
+  const head = document.createElement('div'); head.className = 'ctx-head'; head.textContent = pdisp(p); m.appendChild(head);
   const act = (fn) => async () => { closeCtx(); await selectPlayer(p); fn(); };
   const COPY_ICON = SVG('<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>');
-  const items = [
+  const TARGET_ICON = SVG('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/>');
+  const items = [];
+  if (opts.onMap) items.push({ svg: TARGET_ICON, color: 'var(--accent, #4ade80)', label: 'Set as Target', fn: () => { closeCtx(); selectPlayer(p); } });
+  items.push(
     { ico: 'kick', label: 'Kick Player', fn: act(() => ACTIONS.kick()) },
     { ico: 'kill', label: 'Kill Player', fn: act(() => ACTIONS.kill()) },
     { ico: 'teleportTo', label: 'Teleport to', fn: act(() => ACTIONS.teleportTo()) },
     { ico: 'summon', label: 'Summon', fn: act(() => ACTIONS.summon()) },
     { ico: 'viewInventory', label: 'View Inventory', fn: act(() => ACTIONS.viewInventory()) },
     { sep: true },
+  );
+  if (opts.coords) items.push({ svg: COPY_ICON, color: 'var(--muted)', label: 'Copy Coords', fn: () => { closeCtx(); copyText(`${Math.round(opts.coords.x)} ${Math.round(opts.coords.y)}`, 'Coords'); } });
+  items.push(
     { svg: COPY_ICON, color: 'var(--muted)', label: 'Copy SteamID', fn: () => { closeCtx(); copyText(p.platformId, 'SteamID'); } },
     { svg: COPY_ICON, color: 'var(--muted)', label: 'Copy User ID', fn: () => { closeCtx(); copyText(p.userId, 'User ID'); } },
-  ];
+  );
   items.forEach((it) => {
     if (it.sep) { const s = document.createElement('div'); s.className = 'ctx-sep'; m.appendChild(s); return; }
     const el = document.createElement('div'); el.className = 'ctx-item';
@@ -1126,26 +1168,42 @@ function showCtxMenu(ev, p) {
 document.addEventListener('click', closeCtx);
 window.addEventListener('blur', closeCtx);
 
-// ---------- live mini-map (bottom-right, 60s refresh) ----------
+// ---------- live mini-map (bottom-right, 30s refresh) ----------
 let _miniKey = 'exiled';
 let _miniPlayers = [];
 const _miniImgs = {};
 let _miniStarted = false;
+let _miniView = { z: 1, ox: 0, oy: 0 }; // scroll-wheel zoom + drag-to-pan
+function clampMiniView() {
+  const c = $('miniCanvas'); if (!c) return;
+  const v = _miniView;
+  if (v.z <= 1) { _miniView = { z: 1, ox: 0, oy: 0 }; return; }
+  v.ox = Math.min(0, Math.max(c.width * (1 - v.z), v.ox));
+  v.oy = Math.min(0, Math.max(c.height * (1 - v.z), v.oy));
+}
 const miniImg = async (k) => { if (!(k in _miniImgs)) _miniImgs[k] = await loadImage(MAP_DEFS[k].img); return _miniImgs[k]; };
 const miniInRegion = (p) => (_miniKey === 'siptah' ? p.x > 800000 : p.x <= 800000);
 async function drawMini() {
   const canvas = $('miniCanvas'); if (!canvas) return;
   const ctx = canvas.getContext('2d'); const W = canvas.width, H = canvas.height;
+  const v = _miniView;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, W, H); ctx.fillStyle = '#05070d'; ctx.fillRect(0, 0, W, H);
   const img = await miniImg(_miniKey);
-  if (img) { ctx.drawImage(img, 0, 0, W, H); ctx.fillStyle = 'rgba(5,7,13,0.32)'; ctx.fillRect(0, 0, W, H); }
+  if (img) {
+    ctx.save(); ctx.translate(v.ox, v.oy); ctx.scale(v.z, v.z); // zoom/pan only the map image
+    ctx.drawImage(img, 0, 0, W, H); ctx.fillStyle = 'rgba(5,7,13,0.32)'; ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
   const cal = effCal(_miniKey, loadCal(_miniKey));
-  const toPix = (p) => ({ x: (0.5 + (p.x - cal.cx) / cal.span) * W, y: (cal.flipY ? (0.5 - (p.y - cal.cy) / cal.span) : (0.5 + (p.y - cal.cy) / cal.span)) * H });
+  // unzoomed map px, then apply the view so dots stay a constant on-screen size
+  const toMap = (p) => ({ x: (0.5 + (p.x - cal.cx) / cal.spanX) * W, y: (cal.flipY ? (0.5 - (p.y - cal.cy) / cal.spanY) : (0.5 + (p.y - cal.cy) / cal.spanY)) * H });
   const here = _miniPlayers.filter(miniInRegion);
   canvas._dots = [];
   here.forEach((p) => {
-    const q = toPix(p); if (q.x < -6 || q.x > W + 6 || q.y < -6 || q.y > H + 6) return;
-    canvas._dots.push({ x: q.x, y: q.y, name: p.name });
+    const m = toMap(p); const q = { x: m.x * v.z + v.ox, y: m.y * v.z + v.oy };
+    if (q.x < -6 || q.x > W + 6 || q.y < -6 || q.y > H + 6) return;
+    canvas._dots.push({ x: q.x, y: q.y, name: p.name, userId: p.userId, wx: p.x, wy: p.y });
     ctx.beginPath(); ctx.arc(q.x, q.y, 4.5, 0, Math.PI * 2);
     ctx.fillStyle = '#4ade80'; ctx.shadowColor = '#4ade80'; ctx.shadowBlur = 6; ctx.fill(); ctx.shadowBlur = 0;
     ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.stroke();
@@ -1166,6 +1224,7 @@ const IS_POPOUT = new URLSearchParams(location.search).get('popout') === 'map';
 function applyMiniSize() {
   const mm = $('miniMap'); if (!mm) return;
   const c = $('miniCanvas');
+  _miniView = { z: 1, ox: 0, oy: 0 }; // canvas px size changes → reset zoom/pan
   if (IS_POPOUT) {
     // Fill the popout window with a centered square map.
     const head = mm.querySelector('.mini-head');
@@ -1190,24 +1249,112 @@ function startMiniMap() {
     localStorage.setItem('miniSize', next); applyMiniSize();
   };
   if ($('miniPopout')) $('miniPopout').onclick = () => api.popoutMap();
-  $('miniMapSel').onchange = (e) => { _miniKey = e.target.value; drawMini(); };
+  $('miniMapSel').onchange = (e) => { _miniKey = e.target.value; _miniView = { z: 1, ox: 0, oy: 0 }; drawMini(); };
   $('miniCollapse').onclick = () => {
     const c = $('miniMap').classList.toggle('collapsed');
     localStorage.setItem('miniCollapsed', c ? '1' : '0');
     $('miniCollapse').textContent = c ? '▴' : '▾';
   };
   const canvas = $('miniCanvas'), tip = $('miniTip');
-  canvas.onmousemove = (ev) => {
+  // Map a mouse event to canvas-pixel coords, then to the nearest player dot.
+  const dotAtEvent = (ev) => {
     const rect = canvas.getBoundingClientRect();
     const px = (ev.clientX - rect.left) * (canvas.width / rect.width);
     const py = (ev.clientY - rect.top) * (canvas.height / rect.height);
     let best = null, bd = 13 * 13;
     (canvas._dots || []).forEach((d) => { const dd = (d.x - px) * (d.x - px) + (d.y - py) * (d.y - py); if (dd < bd) { bd = dd; best = d; } });
+    return { best, rect };
+  };
+  // Scroll-wheel zoom (toward the cursor); works in the docked map and the popout.
+  canvas.onwheel = (ev) => {
+    ev.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const px = (ev.clientX - rect.left) * (canvas.width / rect.width);
+    const py = (ev.clientY - rect.top) * (canvas.height / rect.height);
+    const v = _miniView;
+    const zNew = Math.min(8, Math.max(1, v.z * (ev.deltaY < 0 ? 1.15 : 1 / 1.15)));
+    const mx = (px - v.ox) / v.z, my = (py - v.oy) / v.z;
+    v.z = zNew; v.ox = px - mx * zNew; v.oy = py - my * zNew;
+    clampMiniView(); drawMini();
+    canvas.style.cursor = _miniView.z > 1 ? 'grab' : '';
+  };
+  let miniPan = null;
+  canvas.onmousedown = (ev) => { if (ev.button !== 0 || _miniView.z <= 1) return; miniPan = { x: ev.clientX, y: ev.clientY, ox: _miniView.ox, oy: _miniView.oy }; canvas.style.cursor = 'grabbing'; tip.classList.add('hidden'); };
+  const endMiniPan = () => { if (miniPan) { miniPan = null; canvas.style.cursor = _miniView.z > 1 ? 'grab' : ''; } };
+  canvas.onmousemove = (ev) => {
+    if (miniPan) {
+      const rect = canvas.getBoundingClientRect();
+      _miniView.ox = miniPan.ox + (ev.clientX - miniPan.x) * (canvas.width / rect.width);
+      _miniView.oy = miniPan.oy + (ev.clientY - miniPan.y) * (canvas.height / rect.height);
+      clampMiniView(); drawMini(); return;
+    }
+    const { best, rect } = dotAtEvent(ev);
     if (best) { tip.textContent = best.name; tip.style.left = Math.min(rect.width - 60, ev.clientX - rect.left + 8) + 'px'; tip.style.top = (ev.clientY - rect.top - 8) + 'px'; tip.classList.remove('hidden'); }
     else tip.classList.add('hidden');
   };
-  canvas.onmouseleave = () => tip.classList.add('hidden');
-  setInterval(refreshMiniMap, 60000); // once per minute
+  canvas.onmouseup = endMiniPan;
+  canvas.onmouseleave = () => { tip.classList.add('hidden'); endMiniPan(); };
+  // Right-click a dot for the same actions as the left-side player list. The dot
+  // only carries userId, so resolve a fresh live player (idx shifts on join/leave)
+  // by matching userId against the current listplayers before opening the menu.
+  canvas.oncontextmenu = async (ev) => {
+    ev.preventDefault(); tip.classList.add('hidden');
+    const { best } = dotAtEvent(ev);
+    if (!best) return;
+    let full = null;
+    try { const r = await api.listPlayers(); if (r && r.ok) full = (r.players || []).find((p) => p.userId === best.userId); } catch (e) {}
+    if (!full) full = players.find((p) => p.userId === best.userId) || null;
+    if (!full) { log({ ok: false, title: 'Map', message: `${best.name} isn't online anymore — refresh the map.` }); return; }
+    showCtxMenu(ev, full, { onMap: true, coords: { x: best.wx, y: best.wy } });
+  };
+  setInterval(refreshMiniMap, 30000); // every 30 seconds
+}
+
+// ---------- "What's New" patch notes (shown once per new version) ----------
+// Newest first. The version of CHANGELOG[0] should match package.json.
+const CHANGELOG = [
+  {
+    version: '1.4.1',
+    date: 'June 2026',
+    items: [
+      'Right-click a player on the live map for the same actions as the player list: Set as Target, Kick, Kill, Teleport to, Summon, View Inventory.',
+      'Copy a player’s coordinates, SteamID, or User ID straight from the map.',
+      'The right-click menu now shows the player’s name at the top — so overlapping dots are easy to tell apart.',
+      'Map right-click works in the popped-out map window too.',
+      'More accurate live map & heatmap — recalibrated so player and building positions line up with the in-game map.',
+      'The live map now refreshes every 30 seconds (was once a minute).',
+      'Clear the player filter instantly with the ✕ button (or the Esc key).',
+      'Zoom & pan the map — scroll to zoom toward the cursor, drag to pan — on the heatmap and the live player map (pop-out included).',
+    ],
+  },
+];
+function showWhatsNew(version, entries) {
+  $('wnVersion').textContent = 'v' + String(version).replace(/^v/i, '');
+  const body = $('wnBody'); body.innerHTML = '';
+  entries.forEach((e) => {
+    if (entries.length > 1) { const h = document.createElement('div'); h.className = 'wn-ver-head'; h.textContent = `v${e.version}${e.date ? ' · ' + e.date : ''}`; body.appendChild(h); }
+    const ul = document.createElement('ul'); ul.className = 'wn-list';
+    e.items.forEach((it) => { const li = document.createElement('li'); li.textContent = it; ul.appendChild(li); });
+    body.appendChild(ul);
+  });
+  const modal = $('whatsNewModal'); modal.classList.remove('hidden');
+  const close = () => modal.classList.add('hidden');
+  $('wnClose').onclick = close; $('wnOk').onclick = close;
+}
+// Show patch notes once after an update (or first install). Stores the seen
+// version in localStorage so it never shows twice for the same version.
+async function maybeShowWhatsNew() {
+  let ver = '';
+  try { ver = await api.appVersion(); } catch (e) {}
+  if (!ver) return;
+  const seen = localStorage.getItem('seenVersion');
+  if (seen === ver) return;
+  // First install → just the latest entry; an update → everything since `seen`.
+  let toShow;
+  if (!seen) toShow = CHANGELOG.length ? [CHANGELOG[0]] : [];
+  else { const idx = CHANGELOG.findIndex((c) => c.version === seen); toShow = idx === -1 ? (CHANGELOG.length ? [CHANGELOG[0]] : []) : CHANGELOG.slice(0, idx); }
+  localStorage.setItem('seenVersion', ver);
+  if (toShow.length) showWhatsNew(ver, toShow);
 }
 
 // ---------- update check ----------
@@ -1244,5 +1391,6 @@ async function checkForUpdate() {
   }
   startMiniMap();
   checkForUpdate();
+  maybeShowWhatsNew();
 })();
 })();
