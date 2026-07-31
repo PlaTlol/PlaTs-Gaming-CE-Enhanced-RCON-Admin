@@ -7,10 +7,11 @@ const { RconClient } = require('./src/rcon');
 const actions = require('./src/actions');
 const store = require('./src/config');
 
-// ---- item metadata + icon cache (for View Inventory) ----------------------
-// item DB (template_id -> {n,c,w,i}) is bundled functional metadata. Icons are
-// NOT bundled — fetched on demand from the community item DB and cached locally
-// as data URLs, so the shipped app carries no game art.
+// ---- item metadata + icons (for View Inventory) ---------------------------
+// item DB (template_id -> {n,c,w,i}) is bundled functional metadata. Item icons
+// are bundled too (renderer/assets/items/<name>.webp, 64px) so View Inventory
+// works fully offline — no network fetch. A user can still override any icon by
+// dropping a file in their userData/icons folder.
 let _itemDb = null;
 function itemDb() {
   if (_itemDb) return _itemDb;
@@ -26,12 +27,8 @@ function itemDb() {
   return _itemDb;
 }
 function userIconDir() { return path.join(app.getPath('userData'), 'icons'); }
-const ICON_HOST = 'https://ool.iota-plus.com';
-function iconCacheDir() {
-  const d = path.join(app.getPath('userData'), 'iconcache');
-  try { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); } catch (e) {}
-  return d;
-}
+const ITEM_ICON_DIR = path.join(__dirname, 'renderer', 'assets', 'items'); // bundled 64px webp icons
+const ICON_HOST = 'https://ool.iota-plus.com'; // redirect base for fetchBuf (update check); icons no longer fetched
 function fetchBuf(url, redirects = 3) {
   return new Promise((resolve, reject) => {
     const req = https.get(url, { headers: { 'User-Agent': 'PlaT-RCON-Admin' }, timeout: 9000 }, (res) => {
@@ -203,11 +200,9 @@ A('act:summon', (c, s, t) => actions.summonPlayer(c, s, t));
 A('act:sendHome', (c, s, t) => actions.sendHome(c, s, t));
 A('act:viewCharacter', (c, s, t) => actions.viewCharacter(c, s, t));
 A('act:editCharacter', (c, s, t, fields) => actions.editCharacter(c, s, t, fields));
+A('act:setLevel', (c, s, t, level) => actions.setLevel(c, s, t, level));
 A('act:deleteCharacter', (c, s, t) => actions.deleteCharacter(c, s, t));
 A('act:removeBuildings', (c, s, t) => actions.removeBuildings(c, s, t));
-A('act:clearCooldowns', (c, s, t) => actions.clearCooldowns(c, s, t));
-A('act:viewFeats', (c, s, t) => actions.viewFeats(c, s, t));
-A('act:viewQuestFlags', (c, s, t) => actions.viewQuestFlags(c, s, t));
 A('act:viewInventory', (c, s, t) => actions.viewInventory(c, s, t));
 A('act:heatmap', (c, s, opts) => actions.buildingHeatmap(c, s, opts));
 A('act:ownerAt', (c, s, at) => actions.buildingOwnerAt(c, s, at));
@@ -313,26 +308,27 @@ ipcMain.handle('map:popout', () => {
 
 ipcMain.handle('item:db', () => itemDb());
 
-ipcMain.handle('item:icon', async (e, file) => {
+ipcMain.handle('item:icon', (e, file) => {
   if (!file || typeof file !== 'string' || file.includes('..')) return null;
-  const safe = file.replace(/^\/+/, '').replace(/[^a-zA-Z0-9._-]/g, '_');
+  // Use the basename only (icons are keyed by filename, whether the DB stores
+  // "icon_x.png" or an absolute "/static/icons/icon_x.png").
+  const name = String(file).replace(/^.*\//, '').replace(/[^a-zA-Z0-9._-]/g, '_');
+  if (!name) return null;
+  const baseName = name.replace(/\.[a-z0-9]+$/i, '');
   try {
-    // 1) user-supplied local icon (extracted from their own game install)
-    const local = path.join(userIconDir(), safe);
+    // 1) user override — a file they dropped in userData/icons
+    const local = path.join(userIconDir(), name);
     if (fs.existsSync(local)) {
       const buf = fs.readFileSync(local);
-      if (buf.length) return `data:${mimeFor(safe)};base64,${buf.toString('base64')}`;
+      if (buf.length) return `data:${mimeFor(name)};base64,${buf.toString('base64')}`;
     }
-    // 2) previously CDN-cached
-    const cached = path.join(iconCacheDir(), safe);
-    if (fs.existsSync(cached)) {
-      const buf = fs.readFileSync(cached);
-      return buf.length ? `data:${mimeFor(file)};base64,${buf.toString('base64')}` : null;
+    // 2) bundled icon shipped with the app (64px webp) — no network
+    const bundled = path.join(ITEM_ICON_DIR, baseName + '.webp');
+    if (fs.existsSync(bundled)) {
+      const buf = fs.readFileSync(bundled);
+      if (buf.length) return `data:image/webp;base64,${buf.toString('base64')}`;
     }
-    const urlPath = file.startsWith('/') ? file : '/static/img/items/' + file;
-    const buf = await fetchBuf(ICON_HOST + urlPath);
-    fs.writeFileSync(cached, buf);
-    return `data:${mimeFor(file)};base64,${buf.toString('base64')}`;
+    return null;
   } catch (err) {
     return null;
   }

@@ -8,6 +8,9 @@ extractor/bin/
 extractor/obj/
 extractor/extracted_items.json
 
+# Icon-build diagnostics (regenerable by app/tools/build-icons.js)
+app/tools/icon-failures.txt
+
 # Distributables — publish via GitHub Releases, NOT the repo
 *.exe
 *.zip

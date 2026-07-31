@@ -39,13 +39,66 @@ variables do **not** work directly; use `exec` for those (see notes).
 | Command | Usage | Notes |
 |---|---|---|
 | `exec` | `exec <args>` | Runs a **console command / CVar** server-side. ⚠️ Output goes to **`ConanSandbox.log`, not the RCON reply** (RCON just returns "Successfully executed"). Use `exec dw.X` to read a CVar's value, `exec dw.X <value>` to set it. |
-| `con` | `con <id> <command> <args>` | Run a console command in the context of online player `<id>`. |
+| `con` | `con <name#number> <command> <args>` | Run a console command in the context of an online player. **`<id>` must be the account token `name#number`** — see [Targeting a player with `con`](#targeting-a-player-with-con). |
 | `dumpticks` | `dumpticks` | Dumps tick timing info (to log). |
 | `memreport` | `memreport` | Memory report (to log). |
 | `memreportsilentevent` | `memreportsilentevent (key)` | Memory report tied to a key. |
 | `netprofile` | `netprofile (enable\|disable)` | Toggle network profiling (adds overhead). |
 | `sql` | `sql <query>` | ⚠️ **Direct query against the game database.** Powerful and dangerous — can read/modify live world data. Back up `game.db` before write queries. |
 | `Help` | `help "optional filter"` | List commands (optionally filtered). |
+
+---
+
+## Targeting a player with `con`
+
+Everything player-facing must be wrapped in `con <id> <command> <args>`. `exec`
+reports success and is a **no-op** for these.
+
+**`<id>` must be the account token `name#number`** — the **Player name** column of
+`listplayers` (e.g. `PlaT#49895`).
+
+| Identifier | Use it? | Why |
+|---|---|---|
+| **`name#number`** (Player name column) | ✅ **always** | The only identifier `con` resolves correctly. |
+| **User ID** (`A-8CPC756VE`) | 🛑 **never** | Despite the name it is *not* a Funcom account id. `con` can't resolve it and it **moves a different player** — two distinct User IDs have been seen resolving to one character object, which is what caused an arena teleport to move two uninvolved players. |
+| **Platform / Steam ID** | 🛑 **never** | All digits, so the server **re-parses it as an `idx`** and hits whoever holds that index. |
+| **`idx`** | ⚠️ fallback only | Shifts on **any** join or leave — stale the moment the roster changes. |
+
+**The account name need not resemble the character name.** An order for character
+`Cummere` correctly sends `con Spacey#74755 …` — same person. Always join through
+`listplayers` before issuing a command; assuming the character name is the token
+misroutes silently.
+
+**Refuse ambiguous names.** Duplicate character names do occur on live servers
+(`slave` exists twice on Perdition). A first-match `.find()` silently targets a
+stranger — resolve to exactly one row or refuse.
+
+### Commands verified through `con`
+
+**Work:** `SpawnItem` (chunk at ~1000), `TeleportPlayer x y z` (**integers only**),
+`datacmd spawn <class> thrall`, `LearnFeat`, `LearnSpell`, `setlevel`,
+`JourneyUnlockAll` → `JourneyCompleteAll` (**in that order**), `suicide`.
+
+**Don't:** `SpawnNPC` isn't a command on this server at all. `LearnRecipe` is
+recognised but broken.
+
+### Traps that fire destructively
+
+- **Bare `TeleportPlayer` with no arguments moves the player.** Never use it to
+  probe whether a command is reachable.
+- **`JourneyCompleteAll` grants XP** and can level someone unintentionally.
+- **Never loop a per-item progression command.** 51 looped `JourneyComplete`s hung
+  the live game thread for ~3 minutes. **~20 commands is the practical ceiling.**
+
+### Verifying that it actually worked
+
+`Successfully executed` is emitted **even when the wrong player moved or nobody
+did**, and Conan drops roughly half its acks anyway. Verify by **game state**:
+
+- **Items** — check `item_inventory` counts.
+- **Teleports** — `ConanSandbox.log` line
+  `TeleportPlayerServer: teleporting BasePlayerChar_C_<n>` tells you *who actually
+  moved*. That log is the only reason the misrouted-teleport bug was findable.
 
 ---
 

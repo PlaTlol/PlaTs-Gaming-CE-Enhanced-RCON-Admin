@@ -1,21 +1,23 @@
 {
   "name": "plats-rcon-admin",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "description": "PlaT's Gaming - CE Enhanced RCON Admin — control panel for Conan Exiles servers over RCON. No mods required.",
   "main": "main.js",
   "author": "",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-packager . \"PlaT's Gaming - CE Enhanced RCON Admin\" --platform=win32 --arch=x64 --out=dist --overwrite --prune=true --icon=icon.ico --ignore=node_modules --ignore=_probe --ignore=_test --ignore=^/dist$",
-    "dist:installer": "electron-builder --win"
+    "dist": "electron-packager . \"PlaT's Gaming - CE Enhanced RCON Admin\" --platform=win32 --arch=x64 --out=dist --overwrite --prune=true --icon=icon.ico --ignore=node_modules --ignore=_probe --ignore=_test --ignore=tools --ignore=^/dist$",
+    "dist:installer": "electron-builder --win",
+    "build-icons": "node tools/build-icons.js"
   },
   "build": {
     "appId": "com.plat.rconadmin",
     "productName": "PlaT's Gaming - CE Enhanced RCON Admin",
     "files": [
       "**/*",
-      "!dist/**"
+      "!dist/**",
+      "!tools/**"
     ],
     "win": {
       "target": "nsis",
@@ -29,6 +31,7 @@
   "devDependencies": {
     "@electron/packager": "^18.4.4",
     "electron": "^31.0.0",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^24.13.3",
+    "sharp": "^0.35.1"
   }
 }

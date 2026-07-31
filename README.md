@@ -26,11 +26,11 @@ clean panel that talks to your server the same way any RCON tool does.
 - **Server tabs** — manage multiple servers, switch between them, light/dark theme.
 - **Punishments** — Kick, Kill.
 - **Interactions** — Teleport to player, Summon player, Send home.
-- **Tools** — Edit / Delete character, Remove buildings, Clear cooldowns,
-  View feats / quest flags, **View inventory (with item icons)**, **building heatmap on the in-game map**.
+- **Tools** — Edit / Delete character, Remove buildings,
+  **View inventory (with item icons)**, **building heatmap on the in-game map**.
 - **Live player map** — resize between **Normal** and **Large** (kept within the output
   column so it never covers your action buttons), or **pop it out** into its own
-  resizable window.
+  resizable window. Updates when **you** click **↻**, not on a background timer.
 - **Compact action grid** — every action tile fits on screen at once, no scrolling.
 - **Server tools** — **Ban/Whitelist manager**, **Player finder**
   (offline players too), **Building / land-claim report**, **Raid & destruction log**,
@@ -62,8 +62,9 @@ First launch: click **+ Add Server**, enter your server IP, RCON port, RCON pass
 This app handles your RCON password, so here's exactly what it touches:
 
 - **Connects to:** the Conan Exiles server **you** enter (its RCON IP/port).
-- **Fetches:** item icons on demand from the community item database
-  (`ool.iota-plus.com`), cached locally after first view. Nothing else.
+- **Checks for updates:** GitHub Releases (and `platsgaming.com`) for a newer version. Nothing else.
+- **Item icons are bundled** in the app — View Inventory works fully offline, no
+  per-item fetch.
 - **Stores:** your server settings — **including the RCON password** — **locally** on
   your machine (Windows `%APPDATA%`), never in this repo and never uploaded anywhere.
 - **No telemetry, no analytics, no phone-home.** Read the source to verify.

@@ -3,7 +3,7 @@
 A shareable desktop control panel for **Conan Exiles** servers, driven entirely
 over **RCON** — no server mods required. It reproduces the in-game admin button
 panel (kick, kill, teleport, summon, send home, edit/delete character, remove
-buildings, view inventory/feats/quest flags, building heatmap, and more) using
+buildings, view inventory, building heatmap, and more) using
 the server's RCON `sql`, `con`, and native commands.
 
 Fully **templatable**: anyone can run it, click **+ Add Server**, and plug in
@@ -18,21 +18,21 @@ Fully **templatable**: anyone can run it, click **+ Add Server**, and plug in
 - **Live player list** per server from `listplayers`, with filter.
 - **Live player map** — resizable (Normal / Large) inside the output column, or
   pop it out into its own window (`index.html?popout=map`) reusing the same
-  map rendering.
+  map rendering. Refreshes **only when you click ↻** — no background polling.
 - **No credentials in the bundle** — each server's settings (including the RCON
   password) are stored in your per-user data folder, never inside the shared app.
 
 | Section | Button | How it works |
 |---|---|---|
 | Punishments | **Kick Player** | native `kickplayer` |
-| | **Kill Player** | `con <idx> Suicide` (command configurable) |
-| Interactions | **Teleport to Player** | reads target coords via `sql`, `con <you> TeleportPlayer x y z` |
-| | **Summon Player** | reads your coords, teleports the target to you |
-| | **Send Home** | teleports player to a bed/bedroll they own (`sql` lookup) |
-| Tools | **Edit Character** | `sql UPDATE characters` (name / level / alive) |
+| | **Kill Player** | `con <name#number> Suicide` (command configurable) |
+| Interactions | **Teleport to Player** | `con <you> TeleportToPlayer <target>` |
+| | **Summon Player** | `con <target> TeleportToPlayer <you>` |
+| | **Send Home** | `sql` lookup of a bedroll they placed (or one their clan owns), then `con <them> TeleportPlayer x y z` |
+| Tools | **Edit Character** | `sql UPDATE characters` (name / alive) |
+| | **Set Level** | `con <name#number> setlevel <n>` — live, player must be online |
 | | **Delete Character** | `sql DELETE` across all related tables (confirmed) |
 | | **Remove Buildings** | native `buildingquery destroy <owner>` |
-| | **Clear All Cooldowns** | `sql DELETE FROM character_buffs` |
 | | **View Feats** | `sql` progression properties (see notes) |
 | | **View Building Heatmap** | `sql` join of `buildings`→`actor_position`, rendered to canvas |
 | | **View Quest Flags** | `sql` quest properties |
@@ -45,8 +45,17 @@ cover almost everything an admin panel needs:
 
 - **`sql <query>`** runs directly against the live `game.db` and **returns the
   result rows over RCON**. This backs every data view and DB edit.
-- **`con <idx> <consolecommand>`** runs a console command in an online player's
-  context. This backs teleport / summon / kill.
+- **`con <name#number> <consolecommand>`** runs a console command in an online
+  player's context. This backs teleport / summon / kill.
+
+  The `<id>` is the **account token** from the *Player name* column of
+  `listplayers` (e.g. `PlaT#49895`) — **not** the player index, **not** the
+  "User ID" column, and **not** the Steam/platform id. The index shifts on any
+  join or leave; the User ID isn't reliably one-to-one with a character and will
+  move a different player; an all-digit id gets re-parsed as an index. Note the
+  account name need not resemble the character name — an action on character
+  `Cummere` correctly sends `con Spacey#74755 …`. See
+  [`RCON_Commands.md`](../RCON_Commands.md#targeting-a-player-with-con).
 
 No local access to `game.db` is needed — everything goes over the RCON socket,
 so it works against a remote server.
@@ -84,11 +93,25 @@ files beside it.
 ## Notes & limitations
 
 - **Teleport / Summon** require *your* admin character to be **online**.
-- **`con` player id** is the **index** from `listplayers` (handled automatically).
-- **View Feats / Quest Flags**: vanilla stores recipes and quest sets as binary
-  blobs, so these show the relevant progression/quest properties and their sizes.
+- **`con` player id** is the **account token** `name#number` from `listplayers`
+  (handled automatically — see above).
+- **Duplicate character names** are refused rather than guessed: if two online
+  players share a character name, pick the right one from the online list.
+- **"Successfully executed" is not proof.** Conan emits it even when the wrong
+  player moved or nobody did, and drops roughly half its acks. Each action
+  reports the account it addressed; verify real changes against game state
+  (`item_inventory`, or the `TeleportPlayerServer:` line in `ConanSandbox.log`).
 - **View Inventory** shows item `template_id`s (mapping IDs to names needs an
   external item table not present in `game.db`).
+- **Send Home** finds a bed by *who placed it*, not by `buildings.owner_id`:
+  that column holds the **clan id** whenever the builder is in a clan, so
+  matching it against a character id finds a home for almost nobody. The placer
+  is decoded from the `<Class>.PlacingPlayerUniqueID` property (its last 8 bytes
+  are the placer's `characters.id`, little-endian). A bed owned by the player's
+  clan is used as a fallback.
+- **Send Home cannot cross regions.** `TeleportPlayer x y z` can't move a player
+  between the Exiled Lands and the Isle of Siptah, so if their only bed is on the
+  other side the action reports that instead of teleporting them nowhere.
 - Some buttons present in other admin tools depend on data that only exists with
   a mod loaded (e.g. multi-home points, mod variable systems); those are
   intentionally not included here since there's no server-side equivalent.

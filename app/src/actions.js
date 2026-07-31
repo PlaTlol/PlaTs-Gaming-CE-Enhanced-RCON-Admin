@@ -1,5 +1,6 @@
 'use strict';
 const { parseSqlTable, parseListPlayers, sqlEscape } = require('./sqlparse');
+const { conToken, findUniqueOnline } = require('./playerToken');
 
 // Every function here returns a normalized result:
 //   { ok: bool, title: string, message?: string, table?: {columns,rows}, raw?: string }
@@ -61,33 +62,82 @@ async function getCoords(rcon, dbId) {
 }
 
 // Find the configured admin among online players and resolve coords.
+// Also hands back the roster it fetched, so a caller that needs to `con` both
+// the admin and the target resolves both against the SAME listplayers snapshot.
 async function getAdmin(rcon, cfg) {
   if (!cfg.adminCharName) throw new Error('No admin character name set in Settings.');
   const players = await listPlayers(rcon);
-  const me = players.find((p) => p.charName.toLowerCase() === cfg.adminCharName.toLowerCase());
-  if (!me) throw new Error(`Admin character "${cfg.adminCharName}" is not online. Log in first (teleport/summon run in your character's context).`);
+  const matches = players.filter((p) => p.charName.toLowerCase() === cfg.adminCharName.toLowerCase());
+  if (!matches.length) throw new Error(`Admin character "${cfg.adminCharName}" is not online. Log in first (teleport/summon run in your character's context).`);
+  if (matches.length > 1) {
+    throw new Error(
+      `${matches.length} online players are named "${cfg.adminCharName}" ` +
+      `(${matches.map((m) => conToken(m) || `idx ${m.idx}`).join(', ')}). ` +
+      `Set your admin character to the exact account in Settings so commands run as you.`
+    );
+  }
+  const me = matches[0];
   const db = await resolveDbCharacter(rcon, { userId: me.userId, charName: me.charName });
   if (!db) throw new Error('Admin character found online but not in the database yet.');
   const coords = await getCoords(rcon, db.dbId);
-  return { ...me, dbId: db.dbId, coords };
+  return { ...me, dbId: db.dbId, coords, roster: players };
 }
 
-async function con(rcon, idx, command) {
-  return rcon.command(`con ${idx} ${command}`);
+// Run a console command in an online player's context.
+//
+// The target is resolved against a FRESH `listplayers` on every call, and the
+// `<id>` sent is the account token `name#number` (see src/playerToken.js for why
+// User ID / Platform ID / idx are unsafe). Callers pass the whole target object,
+// never an index.
+//
+// `roster` is an optional already-fetched listplayers result, so an action that
+// needs both the admin and the target doesn't query twice.
+async function con(rcon, target, command, roster) {
+  const cmd = String(command == null ? '' : command).trim();
+  if (!cmd) throw new Error('Refusing to send an empty console command.');
+  // A bare `TeleportPlayer` with no coordinates MOVES the player. Never emit it,
+  // and never use it to probe whether a command is reachable.
+  if (/^teleportplayer$/i.test(cmd)) {
+    throw new Error('Refusing to send a bare "TeleportPlayer" — with no coordinates it teleports the player.');
+  }
+  const online = roster || (await listPlayers(rcon));
+  const player = findUniqueOnline(online, target);
+  const token = conToken(player);
+  if (!token) {
+    throw new Error(
+      `${player.charName || 'That player'} has no usable account name in listplayers, ` +
+      `so there is no safe way to target them with "con".`
+    );
+  }
+  const raw = await rcon.command(`con ${token} ${cmd}`);
+  return { raw, token, player };
 }
+
+// `con` reports "Successfully executed" even when the wrong player moved or
+// nobody did, and Conan drops roughly half its acks anyway. Every message built
+// from a con result says who was actually addressed, so a misroute is visible.
+const via = (r) => `(sent to ${r.token})`;
+
+// TeleportPlayer takes integer coordinates only.
+const tpInt = (n) => Math.round(Number(n) || 0);
 
 // ---- PUNISHMENTS ----------------------------------------------------------
 
+// Native `kickplayer` — NOT a `con` command, so it keeps its own selector
+// grammar and the `userid` selector still resolves here. It is still routed
+// through findUniqueOnline first, so the User ID we send comes from a row we
+// just confirmed is online and unambiguous rather than from a stale selection.
 async function kickPlayer(rcon, cfg, target, message) {
   const msg = message || 'Kicked by admin';
-  const raw = await rcon.command(`kickplayer userid ${target.userId} ${msg}`);
-  return { ok: true, title: 'Kick Player', message: `Kicked ${target.charName}.`, raw };
+  const player = findUniqueOnline(await listPlayers(rcon), target);
+  const raw = await rcon.command(`kickplayer userid ${player.userId} ${msg}`);
+  return { ok: true, title: 'Kick Player', message: `Kicked ${player.charName} (${conToken(player) || `idx ${player.idx}`}).`, raw };
 }
 
 async function killPlayer(rcon, cfg, target) {
   const cmd = (cfg.consoleCommands && cfg.consoleCommands.kill) || 'Suicide';
-  const raw = await con(rcon, target.idx, cmd);
-  return { ok: true, title: 'Kill Player', message: `Sent "${cmd}" to ${target.charName}.`, raw };
+  const r = await con(rcon, target, cmd);
+  return { ok: true, title: 'Kill Player', message: `Sent "${cmd}" to ${target.charName} ${via(r)}.`, raw: r.raw };
 }
 
 async function freezePlayer(rcon, cfg, target, freeze) {
@@ -100,8 +150,8 @@ async function freezePlayer(rcon, cfg, target, freeze) {
       message: 'No native vanilla freeze command exists. Set a console command for "freeze"/"unfreeze" in Settings → Advanced if your server supports one.',
     };
   }
-  const raw = await con(rcon, target.idx, cmd);
-  return { ok: true, title: 'Un/Freeze Player', message: `Sent "${cmd}" to ${target.charName}.`, raw };
+  const r = await con(rcon, target, cmd);
+  return { ok: true, title: 'Un/Freeze Player', message: `Sent "${cmd}" to ${target.charName} ${via(r)}.`, raw: r.raw };
 }
 
 // ---- INTERACTIONS ---------------------------------------------------------
@@ -116,33 +166,108 @@ async function freezePlayer(rcon, cfg, target, freeze) {
 async function teleportToPlayer(rcon, cfg, target) {
   if (!target.charName) throw new Error('That player has no character name to teleport to yet.');
   const admin = await getAdmin(rcon, cfg);
-  const raw = await con(rcon, admin.idx, `TeleportToPlayer ${target.charName}`);
-  return { ok: true, title: 'Teleport to Player', message: `Teleported you (${admin.charName}) to ${target.charName}.`, raw };
+  // Resolve the target against the same roster so the name we hand to
+  // TeleportToPlayer belongs to a player we've confirmed is online and unique.
+  const dest = findUniqueOnline(admin.roster, target);
+  const r = await con(rcon, admin, `TeleportToPlayer ${dest.charName}`, admin.roster);
+  return { ok: true, title: 'Teleport to Player', message: `Teleported you (${admin.charName}) to ${dest.charName} ${via(r)}.`, raw: r.raw };
 }
 
 async function summonPlayer(rcon, cfg, target) {
   const admin = await getAdmin(rcon, cfg);
   if (!admin.charName) throw new Error('Your admin character name is not set.');
   // Run TeleportToPlayer in the TARGET's context so they come to the admin.
-  const raw = await con(rcon, target.idx, `TeleportToPlayer ${admin.charName}`);
-  return { ok: true, title: 'Summon Player', message: `Summoned ${target.charName} to you (${admin.charName}).`, raw };
+  const r = await con(rcon, target, `TeleportToPlayer ${admin.charName}`, admin.roster);
+  return { ok: true, title: 'Summon Player', message: `Summoned ${r.player.charName} to you (${admin.charName}) ${via(r)}.`, raw: r.raw };
 }
 
-// Send player to a bed/bedroll they own (reliable, schema-verified).
+// The x coordinate that separates the two world regions. `TeleportPlayer x y z`
+// cannot cross between them (only `TeleportToPlayer <name>` can), so a home on
+// the far side is unreachable and we say so instead of teleporting into nowhere.
+const REGION_SPLIT_X = 800000;
+
+// A placeable records who placed it in `properties` as
+// `<Class>.PlacingPlayerUniqueID` — a blob whose LAST 8 BYTES are the placer's
+// `characters.id`, little-endian. Verified on a live server: 230 of 231 beds
+// decoded to a real character id, 0 to a guild id.
+function placerIdSuffixHex(charId) {
+  let n = BigInt(charId);
+  let out = '';
+  for (let i = 0; i < 8; i++) {
+    out += (n & 255n).toString(16).toUpperCase().padStart(2, '0');
+    n >>= 8n;
+  }
+  return out;
+}
+
+// Send a player to their bedroll.
+//
+// Ownership is the subtle part: `buildings.owner_id` is the GUILD id when the
+// builder is in a clan, and only a character id for soloists. Matching it
+// against the character id alone — which this used to do — finds a home for
+// almost nobody: on a live server that was 12 of 450 characters, because 220 of
+// 235 beds are clan-owned. So we look for a bed the player PERSONALLY PLACED
+// (via PlacingPlayerUniqueID), and fall back to any bed owned by them or their
+// clan. That lifts coverage to 154 of 450 on the same data.
+//
+// Preference order, best first:
+//   0. a bedroll they placed themselves   <- their actual respawn item
+//   1. a bed they placed themselves
+//   2. a bedroll owned by them or their clan
+//   3. a bed owned by them or their clan
+// ties broken by newest (highest actor id).
 async function sendHome(rcon, cfg, target) {
+  const id = toInt(target.dbId);
+  if (id == null) {
+    return { ok: false, title: 'Send Home', message: `${target.charName} has no character record, so there is no home to look up.` };
+  }
+  const placed =
+    `EXISTS (SELECT 1 FROM properties p WHERE p.object_id=ap.id ` +
+    `AND p.name LIKE '%.PlacingPlayerUniqueID' AND hex(p.value) LIKE '%${placerIdSuffixHex(id)}')`;
+  const selfX = `(SELECT x FROM actor_position WHERE id=${id})`;
+
   const raw0 = await rcon.command(
-    `sql SELECT ap.x AS x, ap.y AS y, ap.z AS z FROM actor_position ap ` +
-    `JOIN buildings b ON b.object_id=ap.id ` +
-    `WHERE b.owner_id=${toInt(target.dbId)} AND (ap.class LIKE '%Bedroll%' OR ap.class LIKE '%Bed_%' OR ap.class LIKE '%_Bed%') LIMIT 1;`
+    `sql SELECT ap.x AS x, ap.y AS y, ap.z AS z, ap.class AS class, ` +
+    `CASE WHEN ${placed} THEN (CASE WHEN ap.class LIKE '%Bedroll%' THEN 0 ELSE 1 END) ` +
+    `ELSE (CASE WHEN ap.class LIKE '%Bedroll%' THEN 2 ELSE 3 END) END AS pri, ` +
+    // Unknown current position (never spawned) -> don't filter by region.
+    `CASE WHEN ${selfX} IS NULL THEN 1 WHEN (ap.x > ${REGION_SPLIT_X}) = (${selfX} > ${REGION_SPLIT_X}) THEN 1 ELSE 0 END AS sameRegion ` +
+    `FROM actor_position ap LEFT JOIN buildings b ON b.object_id=ap.id ` +
+    `WHERE ap.class LIKE '%Bed%' AND (${placed} OR b.owner_id IN (${id}, COALESCE((SELECT guild FROM characters WHERE id=${id}),0))) ` +
+    `ORDER BY sameRegion DESC, pri ASC, ap.id DESC LIMIT 1;`
   );
   const { rows } = parseSqlTable(raw0);
   if (!rows.length) {
-    return { ok: false, title: 'Send Home', message: `${target.charName} has no bed/bedroll on the server, so there is no home to send them to.` };
+    return { ok: false, title: 'Send Home', message: `${target.charName} has no bed or bedroll on the server (none they placed, and none owned by them or their clan), so there is no home to send them to.` };
   }
-  const r = rows[0];
+  const row = rows[0];
+
+  if (toInt(row.sameRegion) === 0) {
+    // sameRegion=0 means the player is necessarily in the OTHER region.
+    const homeOnSiptah = Number(row.x) > REGION_SPLIT_X;
+    const home = homeOnSiptah ? 'the Isle of Siptah' : 'the Exiled Lands';
+    const now = homeOnSiptah ? 'the Exiled Lands' : 'the Isle of Siptah';
+    return {
+      ok: false,
+      title: 'Send Home',
+      message:
+        `${target.charName}'s only bed is on ${home}, but they are currently on ${now}. ` +
+        `TeleportPlayer cannot move a player between the two regions — use Summon, or have them travel there first.`,
+    };
+  }
+
+  const isBedroll = /Bedroll/i.test(String(row.class || ''));
+  const own = toInt(row.pri) <= 1 ? 'their own ' : "their clan's ";
   const cmd = (cfg.consoleCommands && cfg.consoleCommands.teleportSelf) || 'TeleportPlayer';
-  const raw = await con(rcon, target.idx, `${cmd} ${parseFloat(r.x)} ${parseFloat(r.y)} ${parseFloat(r.z)}`);
-  return { ok: true, title: 'Send Home', message: `Sent ${target.charName} to their bed.`, raw };
+  // TeleportPlayer takes integers only. Lift slightly so they don't land inside
+  // the bed mesh or the floor it sits on.
+  const r = await con(rcon, target, `${cmd} ${tpInt(row.x)} ${tpInt(row.y)} ${tpInt(row.z) + 50}`);
+  return {
+    ok: true,
+    title: 'Send Home',
+    message: `Sent ${target.charName} to ${own}${isBedroll ? 'bedroll' : 'bed'} ${via(r)}.`,
+    raw: r.raw,
+  };
 }
 
 // ---- TOOLS ----------------------------------------------------------------
@@ -169,11 +294,18 @@ async function editCharacter(rcon, cfg, target, fields) {
   const id = toInt(target.dbId);
   const sets = [];
   if (fields.char_name != null && fields.char_name !== '') sets.push(`char_name='${sqlEscape(fields.char_name)}'`);
-  if (fields.level != null && fields.level !== '') sets.push(`level=${toInt(fields.level)}`);
   if (fields.isAlive != null && fields.isAlive !== '') sets.push(`isAlive=${toInt(fields.isAlive) ? 1 : 0}`);
   if (!sets.length) return { ok: false, title: 'Edit Character', message: 'Nothing to change.' };
   const raw = await rcon.command(`sql UPDATE characters SET ${sets.join(', ')} WHERE id=${id};`);
   return { ok: true, title: 'Edit Character', message: `Updated ${target.charName}.`, note: RESTART_NOTE, raw };
+}
+
+// Set a player's level LIVE in their session (no relog/restart). Uses the
+// game's console `setlevel` via `con <name#number>`, so the player must be online.
+async function setLevel(rcon, cfg, target, level) {
+  const lvl = Math.max(1, toInt(level));
+  const r = await con(rcon, target, `setlevel ${lvl}`);
+  return { ok: true, title: 'Set Level', message: `Set ${r.player.charName} to level ${lvl} ${via(r)}.`, raw: r.raw };
 }
 
 async function deleteCharacter(rcon, cfg, target) {
@@ -204,43 +336,6 @@ async function removeBuildings(rcon, cfg, target) {
   return { ok: true, title: 'Remove Buildings', message: `Destroyed buildings for ${target.charName} (~${pieces} pieces).`, raw };
 }
 
-async function clearCooldowns(rcon, cfg, target) {
-  const id = toInt(target.dbId);
-  const raw = await rcon.command(`sql DELETE FROM character_buffs WHERE char_id=${id};`);
-  return { ok: true, title: 'Clear All Cooldowns', message: `Cleared active buffs/cooldowns for ${target.charName}.`, note: RESTART_NOTE, raw };
-}
-
-async function viewFeats(rcon, cfg, target) {
-  const id = toInt(target.dbId);
-  // Vanilla stores learned recipes as an opaque blob, so we surface the
-  // progression-related properties we CAN read meaningfully.
-  const raw = await rcon.command(
-    `sql SELECT name, LENGTH(value) AS bytes FROM properties WHERE object_id=${id} AND (` +
-    `name LIKE '%Feat%' OR name LIKE '%Progression%' OR name LIKE '%Attribute%' OR name LIKE '%Favors%' OR name LIKE '%Religion%');`
-  );
-  return {
-    ok: true,
-    title: `Feats / Progression: ${target.charName}`,
-    table: parseSqlTable(raw),
-    note: 'Vanilla stores the learned-recipe list as a binary blob, so this shows progression properties and their sizes rather than a decoded recipe list.',
-    raw,
-  };
-}
-
-async function viewQuestFlags(rcon, cfg, target) {
-  const id = toInt(target.dbId);
-  const raw = await rcon.command(
-    `sql SELECT name, LENGTH(value) AS bytes FROM properties WHERE object_id=${id} AND name LIKE '%Quest%';`
-  );
-  return {
-    ok: true,
-    title: `Quest Flags: ${target.charName}`,
-    table: parseSqlTable(raw),
-    note: 'Active/Completed quest sets are stored as blobs; sizes indicate whether quest data is present.',
-    raw,
-  };
-}
-
 // inv_type soft labels (best-effort; unknown types show as "Type N").
 const INV_LABELS = {
   0: 'Inventory', 1: 'Equipment', 2: 'Hotbar', 4: 'Thrall/Container',
@@ -250,12 +345,19 @@ const INV_LABELS = {
 
 const INV_LABEL = (t) => INV_LABELS[t] || `Container ${t}`;
 
+// inv_types that are NOT real item containers: the radial/quick-action bar
+// (inv_type 7) stores emote/ability indices in template_id (tiny ids, uniform
+// 109-byte records) — not items. Verified live against game.db. Excluded so
+// View Inventory doesn't render those bindings as broken/unknown items.
+const NON_ITEM_INV_TYPES = [7];
+
 async function viewInventory(rcon, cfg, target) {
   const id = toInt(target.dbId);
   // One row per (container, item) with how many stacks of it. Paged to beat the
   // ~10KB reply cap. (Per-stack quantity lives in a binary blob we don't decode.)
   const buildQuery = (lim, off) =>
     `sql SELECT inv_type, template_id, COUNT(*) AS stacks FROM item_inventory WHERE owner_id=${id} ` +
+    `AND inv_type NOT IN (${NON_ITEM_INV_TYPES.join(',')}) ` +
     `GROUP BY inv_type, template_id ORDER BY inv_type, stacks DESC LIMIT ${lim} OFFSET ${off};`;
   const rows = await sqlAll(rcon, buildQuery, 200);
   const items = rows.map((r) => ({
@@ -364,8 +466,28 @@ async function livePlayerPositions(rcon, cfg) {
     `FROM account a JOIN characters c ON c.playerId=a.id JOIN actor_position ap ON ap.id=c.id ` +
     `WHERE a.user IN (${ids.join(',')});`
   );
+  // Attach the account token so a right-clicked dot can act on the player
+  // without going back through the User ID (which is not reliably 1:1 with a
+  // character — see src/playerToken.js). If a User ID maps to more than one
+  // online row the token is left null and the caller re-resolves by name.
+  const byUser = new Map();
+  players.forEach((p) => {
+    if (!p.userId) return;
+    if (!byUser.has(p.userId)) byUser.set(p.userId, []);
+    byUser.get(p.userId).push(p);
+  });
   const pos = parseSqlTable(raw).rows
-    .map((r) => ({ userId: r.userId, name: r.name, x: parseFloat(r.x), y: parseFloat(r.y) }))
+    .map((r) => {
+      const hits = byUser.get(r.userId) || [];
+      const row = hits.length === 1 ? hits[0] : null;
+      return {
+        userId: r.userId,
+        name: r.name,
+        playerName: row ? row.playerName : null,
+        x: parseFloat(r.x),
+        y: parseFloat(r.y),
+      };
+    })
     .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
   return { ok: true, players: pos, online: players.length };
 }
@@ -644,8 +766,8 @@ module.exports = {
   listPlayers, resolveDbCharacter, getCoords, getAdmin,
   kickPlayer, killPlayer, freezePlayer,
   teleportToPlayer, summonPlayer, sendHome,
-  viewCharacter, editCharacter, deleteCharacter, removeBuildings, clearCooldowns,
-  viewFeats, viewQuestFlags, viewInventory, buildingHeatmap, buildingOwnerAt, topBuilders,
+  viewCharacter, editCharacter, setLevel, deleteCharacter, removeBuildings,
+  viewInventory, buildingHeatmap, buildingOwnerAt, topBuilders,
   serverDashboard, listBans, banPlayer, unbanPlayer, whitelistPlayer, findCharacters,
   buildingReport, abandonedBases, destroyOwnerBuildings, raidLog, clanList, clanMembers, renameGuild, setGuildOwner, disbandGuild,
   livePlayerPositions, rawCommand, broadcastMessage,

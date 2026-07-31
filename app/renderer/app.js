@@ -104,8 +104,8 @@ function renderPlayers() {
     .filter((p) => !q || p.charName.toLowerCase().includes(q) || p.playerName.toLowerCase().includes(q))
     .forEach((p) => {
       const li = document.createElement('li');
-      if (selected && selected.idx === p.idx && selected.userId === p.userId) li.className = 'active';
-      li.innerHTML = `<span class="pl-name">${esc(pdisp(p))}</span><span class="pl-sub">${esc(hasChar(p) ? p.playerName : 'no character yet')} · idx ${p.idx}</span>`;
+      if (selected && selected.playerName && selected.playerName === p.playerName) li.className = 'active';
+      li.innerHTML = `<span class="pl-name">${esc(pdisp(p))}</span><span class="pl-sub">${esc(hasChar(p) ? p.playerName : 'no character yet')}</span>`;
       li.onclick = () => selectPlayer(p);
       li.oncontextmenu = (e) => showCtxMenu(e, p);
       ul.appendChild(li);
@@ -121,13 +121,21 @@ async function selectPlayer(p) {
 function updateSelected() {
   $('selName').textContent = selected ? pdisp(selected) : '— none —';
   const meta = $('selMeta');
-  meta.textContent = selected ? `idx ${selected.idx} · userId ${selected.userId} · dbId ${selected.dbId ?? '—'}` : '';
+  // The account token is what actually gets sent as `con <id>`, so show it.
+  meta.textContent = selected ? `${selected.playerName || '— no account token —'} · dbId ${selected.dbId ?? '—'}` : '';
   meta.title = selected ? 'Click to copy SteamID / User ID' : '';
   meta.style.cursor = selected ? 'pointer' : 'default';
   meta.onclick = selected ? () => copyText(selected.platformId || selected.userId, selected.platformId ? 'SteamID' : 'User ID') : null;
 }
 function requireTarget() { if (!selected) { log({ ok: false, title: 'No target', message: 'Select an online player first.' }); return false; } return true; }
 function requireDbId() { if (!requireTarget()) return false; if (selected.dbId == null) { log({ ok: false, title: 'No DB record', message: `${selected.charName} isn't in the character DB yet.` }); return false; } return true; }
+// Live actions go out as `con <name#number>`, so the target needs an account
+// token from listplayers. Offline players (e.g. from Player Finder) have none.
+function requireOnline() {
+  if (!requireTarget()) return false;
+  if (!selected.playerName) { log({ ok: false, title: 'Not online', message: `${selected.charName} must be online — this runs live in their session.` }); return false; }
+  return true;
+}
 
 // ---------- action dispatch ----------
 const ACTIONS = {
@@ -137,11 +145,9 @@ const ACTIONS = {
   summon: async () => requireTarget() && run('Summon Player', api.summon(selected)),
   sendHome: async () => requireDbId() && run('Send Home', api.sendHome(selected)),
   editCharacter: async () => requireDbId() && openEdit(),
+  setLevel: async () => requireOnline() && openSetLevel(),
   deleteCharacter: async () => requireDbId() && confirmThen('Delete Character', `PERMANENTLY delete ${selected.charName} (dbId ${selected.dbId}) and all related data? This cannot be undone.`, () => run('Delete Character', api.deleteCharacter(selected))),
   removeBuildings: async () => requireDbId() && confirmThen('Remove Buildings', `Destroy ALL buildings owned by ${selected.charName}?`, () => run('Remove Buildings', api.removeBuildings(selected))),
-  clearCooldowns: async () => requireDbId() && run('Clear Cooldowns', api.clearCooldowns(selected)),
-  viewFeats: async () => requireDbId() && showData(await api.viewFeats(selected)),
-  viewQuestFlags: async () => requireDbId() && showData(await api.viewQuestFlags(selected)),
   viewInventory: async () => requireDbId() && showInventory(await api.viewInventory(selected)),
   heatmap: async () => openHeatmap(),
   dashboard: async () => showDashboard(),
@@ -186,12 +192,10 @@ const ICONS = {
   sendHome: SVG('<path d="M3 11l9-8 9 8"/><path d="M5 9v11h14V9"/><path d="M10 20v-6h4v6"/>'),
   // Tools
   editCharacter: SVG('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/>'),
+  setLevel: SVG('<path d="M5 21V11M12 21V4M19 21v-6"/><path d="M12 4l-3 3M12 4l3 3"/>'),
   deleteCharacter: SVG('<path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14"/><path d="M10 11v6M14 11v6"/>'),
   removeBuildings: SVG('<path d="M3 5h18v14H3z"/><path d="M3 12h18M9 5v7M16 12v7M12 12V5"/>'),
-  clearCooldowns: SVG('<path d="M20 6.5A8 8 0 1 0 21 12"/><path d="M21 3v4h-4"/><path d="M12 8v4l3 2"/>'),
-  viewFeats: SVG('<path d="M12 2.5l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 16.8 6.4 19.7l1.1-6.2L3 9.1l6.2-.9z"/>'),
   heatmap: SVG('<path d="M3 7l6-3 6 3 6-3v13l-6 3-6-3-6 3z"/><path d="M9 4v13M15 7v13"/>'),
-  viewQuestFlags: SVG('<path d="M5 21V3"/><path d="M5 4h12l-2.5 3.5L17 11H5"/>'),
   viewInventory: SVG('<path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/>'),
 };
 // Per-action icon colors — varied but theme-coherent (vivid on dark bg).
@@ -201,9 +205,8 @@ const ICON_COLORS = {
   broadcast: '#5b9df0', rconConsole: '#4ade80',
   kick: '#f0832f', kill: '#e0243f',
   teleportTo: '#a779f0', summon: '#5b9df0', sendHome: '#4ade80',
-  editCharacter: '#5b9df0', deleteCharacter: '#e0243f', removeBuildings: '#f0832f',
-  clearCooldowns: '#34d3c0', viewFeats: '#f5c542', heatmap: '#ee6aa7',
-  viewQuestFlags: '#4ade80', viewInventory: '#f59e7a',
+  editCharacter: '#5b9df0', setLevel: '#f5c542', deleteCharacter: '#e0243f', removeBuildings: '#f0832f',
+  heatmap: '#ee6aa7', viewInventory: '#f59e7a',
 };
 function applyIcons() {
   document.querySelectorAll('.act-btn').forEach((b) => {
@@ -273,7 +276,7 @@ async function showInventory(res) {
   const groups = {};
   for (const it of res.items) { (groups[it.invType] = groups[it.invType] || { name: it.container, items: [] }).items.push(it); }
   const sum = document.createElement('div'); sum.className = 'note';
-  sum.textContent = `${res.items.length} distinct items · ${res.total} total stacks · icons load from the community item DB (cached after first view)`;
+  sum.textContent = `${res.items.length} distinct items · ${res.total} total stacks`;
   body.appendChild(sum);
   const pending = [];
   Object.keys(groups).sort((a, b) => a - b).forEach((k) => {
@@ -308,16 +311,36 @@ function openEdit() {
   const wrap = document.createElement('div'); wrap.className = 'edit-grid';
   wrap.innerHTML =
     `<label>Character name <input id="edName" value="${esc(selected.charName)}" /></label>` +
-    `<label>Level <input id="edLevel" type="number" min="0" max="60" value="${esc(selected.dbLevel ?? '')}" /></label>` +
     `<label>Alive <select id="edAlive"><option value="">(unchanged)</option><option value="1">Alive</option><option value="0">Dead</option></select></label>` +
-    `<div class="note">Writes to the characters table. Player should relog for changes to fully apply.</div>`;
+    `<div class="note">Writes to the characters table. Player should relog for changes to fully apply. (To change level, use <b>Set Level</b> — it applies live.)</div>`;
   body.appendChild(wrap);
   const btn = document.createElement('button'); btn.className = 'primary-btn'; btn.textContent = 'Apply changes'; btn.style.marginTop = '12px';
   btn.onclick = async () => {
-    const fields = { char_name: $('edName').value, level: $('edLevel').value, isAlive: $('edAlive').value };
+    const fields = { char_name: $('edName').value, isAlive: $('edAlive').value };
     $('dataModal').classList.add('hidden');
     await run('Edit Character', api.editCharacter(selected, fields));
     selected.charName = fields.char_name || selected.charName; updateSelected();
+  };
+  body.appendChild(btn);
+  $('dataModal').classList.remove('hidden');
+}
+
+// ---------- set level (live, via `con <name#number> setlevel N`) ----------
+function openSetLevel() {
+  $('dataTitle').textContent = `Set Level: ${selected.charName}`;
+  const body = $('dataBody'); body.innerHTML = '';
+  const wrap = document.createElement('div'); wrap.className = 'edit-grid';
+  wrap.innerHTML =
+    `<label>Level <input id="slLevel" type="number" min="1" max="60" value="${esc(selected.dbLevel ?? '')}" /></label>` +
+    `<div class="note">Applies live via <code>con &lt;name#number&gt; setlevel</code> — the player must be online. Takes effect immediately, no relog needed.</div>`;
+  body.appendChild(wrap);
+  const btn = document.createElement('button'); btn.className = 'primary-btn'; btn.textContent = 'Set level'; btn.style.marginTop = '12px';
+  btn.onclick = async () => {
+    const lvl = $('slLevel').value;
+    if (lvl === '' || !Number.isFinite(+lvl)) { log({ ok: false, title: 'Set Level', message: 'Enter a level number first.' }); return; }
+    $('dataModal').classList.add('hidden');
+    const res = await run('Set Level', api.setLevel(selected, lvl));
+    if (res && res.ok) { selected.dbLevel = +lvl; updateSelected(); }
   };
   body.appendChild(btn);
   $('dataModal').classList.remove('hidden');
@@ -431,13 +454,17 @@ async function showPlayerFinder() {
         `<span class="muted">Lvl ${esc(r.level)} · ${alive ? 'alive' : 'dead'} · ${online ? 'ONLINE' : 'last ' + (r.last ? timeAgo(r.last) : '—')}</span>` +
         `<span class="muted find-id">id ${r.dbId}</span>`;
       row.onclick = () => {
-        const onlineP = players.find((p) => p.userId === r.userId);
+        // Prefer a userId hit whose character name agrees; a User ID can point at
+        // a different character, so fall back to an unambiguous name match only.
+        const sameName = players.filter((p) => (p.charName || '').toLowerCase() === (r.charName || '').toLowerCase());
+        const onlineP = players.find((p) => p.userId === r.userId && (p.charName || '').toLowerCase() === (r.charName || '').toLowerCase())
+          || (sameName.length === 1 ? sameName[0] : null);
         selected = onlineP
           ? { ...onlineP, dbId: r.dbId, dbLevel: r.level }
           : { idx: undefined, charName: r.charName, playerName: '', userId: r.userId, platformId: r.platformId, dbId: r.dbId, dbLevel: r.level };
         updateSelected(); renderPlayers();
         $('dataModal').classList.add('hidden');
-        log({ ok: true, title: 'Selected', message: `${r.charName} is now the target${online ? '' : ' (offline — Edit/Delete/Remove Buildings/View Inventory & Feats work; Teleport/Summon/Kick need them online)'}.` });
+        log({ ok: true, title: 'Selected', message: `${r.charName} is now the target${online ? '' : ' (offline — Edit/Delete/Remove Buildings/View Inventory work; Teleport/Summon/Kick need them online)'}.` });
       };
       results.appendChild(row);
     });
@@ -449,7 +476,9 @@ async function showPlayerFinder() {
 
 // ---------- building / land-claim report ----------
 function selectOwner(o) {
-  selected = { idx: undefined, charName: o.name, playerName: o.type, userId: null, platformId: null, dbId: o.ownerId, dbLevel: null };
+  // playerName stays empty: it is the `con` account token now, and a building
+  // owner (which may be a clan) has none. ownerType carries the label instead.
+  selected = { idx: undefined, charName: o.name, playerName: '', ownerType: o.type, userId: null, platformId: null, dbId: o.ownerId, dbLevel: null };
   updateSelected(); renderPlayers();
   $('dataModal').classList.add('hidden');
   log({ ok: true, title: 'Owner selected', message: `${o.name} (${o.type}, id ${o.ownerId}) is the target — use "Remove Buildings" to clear their ${o.pieces} pieces.` });
@@ -1168,7 +1197,7 @@ function showCtxMenu(ev, p, opts = {}) {
 document.addEventListener('click', closeCtx);
 window.addEventListener('blur', closeCtx);
 
-// ---------- live mini-map (bottom-right, 30s refresh) ----------
+// ---------- live mini-map (bottom-right, manual refresh) ----------
 let _miniKey = 'exiled';
 let _miniPlayers = [];
 const _miniImgs = {};
@@ -1203,19 +1232,30 @@ async function drawMini() {
   here.forEach((p) => {
     const m = toMap(p); const q = { x: m.x * v.z + v.ox, y: m.y * v.z + v.oy };
     if (q.x < -6 || q.x > W + 6 || q.y < -6 || q.y > H + 6) return;
-    canvas._dots.push({ x: q.x, y: q.y, name: p.name, userId: p.userId, wx: p.x, wy: p.y });
+    canvas._dots.push({ x: q.x, y: q.y, name: p.name, userId: p.userId, playerName: p.playerName, wx: p.x, wy: p.y });
     ctx.beginPath(); ctx.arc(q.x, q.y, 4.5, 0, Math.PI * 2);
     ctx.fillStyle = '#4ade80'; ctx.shadowColor = '#4ade80'; ctx.shadowBlur = 6; ctx.fill(); ctx.shadowBlur = 0;
     ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.stroke();
   });
   if ($('miniOnline')) $('miniOnline').textContent = `${here.length} here · ${_miniPlayers.length} on`;
 }
+// Manual only — the map never polls on its own. The user clicks ↻ (or an action
+// that implies a fresh view, like switching servers) to pull new positions.
+let _miniBusy = false;
 async function refreshMiniMap() {
   const mm = $('miniMap'); if (!mm) return;
   if (!activeServer()) { mm.classList.add('hidden'); return; }
   mm.classList.remove('hidden');
+  if (_miniBusy) return;
+  _miniBusy = true;
+  const btn = $('miniRefresh'), sub = $('miniSub');
+  if (btn) { btn.disabled = true; btn.classList.add('spinning'); }
+  if (sub) sub.textContent = 'refreshing…';
   try { const res = await api.livePositions(); if (res && res.ok) _miniPlayers = res.players || []; } catch (e) {}
   drawMini();
+  if (sub) sub.textContent = `updated ${new Date().toLocaleTimeString()} · click ↻ to refresh`;
+  if (btn) { btn.disabled = false; btn.classList.remove('spinning'); }
+  _miniBusy = false;
 }
 // Docked sizes stay within the 360px output column so the map never covers the
 // action buttons (the center column). Pop out the map for a bigger view.
@@ -1248,6 +1288,7 @@ function startMiniMap() {
     const next = (localStorage.getItem('miniSize') === 'l') ? 's' : 'l';
     localStorage.setItem('miniSize', next); applyMiniSize();
   };
+  if ($('miniRefresh')) $('miniRefresh').onclick = () => refreshMiniMap();
   if ($('miniPopout')) $('miniPopout').onclick = () => api.popoutMap();
   $('miniMapSel').onchange = (e) => { _miniKey = e.target.value; _miniView = { z: 1, ox: 0, oy: 0 }; drawMini(); };
   $('miniCollapse').onclick = () => {
@@ -1294,25 +1335,47 @@ function startMiniMap() {
   };
   canvas.onmouseup = endMiniPan;
   canvas.onmouseleave = () => { tip.classList.add('hidden'); endMiniPan(); };
-  // Right-click a dot for the same actions as the left-side player list. The dot
-  // only carries userId, so resolve a fresh live player (idx shifts on join/leave)
-  // by matching userId against the current listplayers before opening the menu.
+  // Right-click a dot for the same actions as the left-side player list.
+  // Resolve against a fresh listplayers by ACCOUNT TOKEN — the dot's userId is
+  // not reliably 1:1 with a character, so matching on it can open the menu for
+  // the wrong person. Fall back to an unambiguous character-name match, and
+  // refuse rather than guess when the name is duplicated.
   canvas.oncontextmenu = async (ev) => {
     ev.preventDefault(); tip.classList.add('hidden');
     const { best } = dotAtEvent(ev);
     if (!best) return;
-    let full = null;
-    try { const r = await api.listPlayers(); if (r && r.ok) full = (r.players || []).find((p) => p.userId === best.userId); } catch (e) {}
-    if (!full) full = players.find((p) => p.userId === best.userId) || null;
+    let roster = players;
+    try { const r = await api.listPlayers(); if (r && r.ok) roster = r.players || []; } catch (e) {}
+    let full = best.playerName ? roster.find((p) => p.playerName === best.playerName) : null;
+    if (!full) {
+      const byName = roster.filter((p) => (p.charName || '').toLowerCase() === (best.name || '').toLowerCase());
+      if (byName.length > 1) { log({ ok: false, title: 'Map', message: `More than one online player is named ${best.name} — pick them from the online list so the action goes to the right account.` }); return; }
+      full = byName[0] || null;
+    }
     if (!full) { log({ ok: false, title: 'Map', message: `${best.name} isn't online anymore — refresh the map.` }); return; }
     showCtxMenu(ev, full, { onMap: true, coords: { x: best.wx, y: best.wy } });
   };
-  setInterval(refreshMiniMap, 30000); // every 30 seconds
+  // No auto-refresh: the map updates only when the user clicks ↻.
 }
 
 // ---------- "What's New" patch notes (shown once per new version) ----------
 // Newest first. The version of CHANGELOG[0] should match package.json.
 const CHANGELOG = [
+  {
+    version: '1.5.0',
+    date: 'July 2026',
+    items: [
+      'Live commands now target players by their account name (name#number) instead of the listplayers index — the index shifts every time somebody joins or leaves, which could send a command to the wrong player.',
+      'Kill, Freeze, Teleport, Summon, Send Home and Set Level all re-check who is online at the moment you click, so a stale selection can no longer misfire.',
+      'If two online players share a character name, actions now refuse to run instead of guessing — pick the right one from the online list.',
+      'Every action now reports which account it was sent to, so a misroute is visible immediately.',
+      'Send Home sends whole-number coordinates (the game rejects fractional ones).',
+      'The live map no longer refreshes on a timer — click ↻ on the map header to refresh it when you want.',
+      'Send Home works again — it was looking up beds by owner id, which is the CLAN id for anyone in a clan, so it found a home for almost nobody. It now finds the bedroll the player placed themselves, and falls back to one their clan owns.',
+      'Send Home prefers their actual bedroll over any old bed, and tells you when their only bed is on the other map instead of failing silently.',
+      'Removed the Clear All Cooldowns, View Feats and View Quest Flags buttons.',
+    ],
+  },
   {
     version: '1.4.1',
     date: 'June 2026',

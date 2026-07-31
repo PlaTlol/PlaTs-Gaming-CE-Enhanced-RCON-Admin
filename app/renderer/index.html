@@ -114,12 +114,10 @@
           <h2 class="group-title">Tools</h2>
           <div class="tiles">
             <button class="act-btn" data-act="editCharacter"><span class="act-ico">✏️</span><span class="act-lbl">Edit Character</span></button>
+            <button class="act-btn" data-act="setLevel"><span class="act-ico">🎚️</span><span class="act-lbl">Set Level</span></button>
             <button class="act-btn danger" data-act="deleteCharacter"><span class="act-ico">🗑️</span><span class="act-lbl">Delete Character</span></button>
             <button class="act-btn danger" data-act="removeBuildings"><span class="act-ico">🧱</span><span class="act-lbl">Remove Buildings</span></button>
-            <button class="act-btn" data-act="clearCooldowns"><span class="act-ico">⏱️</span><span class="act-lbl">Clear All Cooldowns</span></button>
-            <button class="act-btn" data-act="viewFeats"><span class="act-ico">⭐</span><span class="act-lbl">View Feats</span></button>
             <button class="act-btn" data-act="heatmap"><span class="act-ico">🗺️</span><span class="act-lbl">View Building Heatmap</span></button>
-            <button class="act-btn" data-act="viewQuestFlags"><span class="act-ico">🚩</span><span class="act-lbl">View Quest Flags</span></button>
             <button class="act-btn" data-act="viewInventory"><span class="act-ico">🎒</span><span class="act-lbl">View Inventory</span></button>
           </div>
         </section>
@@ -144,11 +142,12 @@
       <span class="mini-title">LIVE MAP</span>
       <select id="miniMapSel"><option value="exiled">Exiled Lands</option><option value="siptah">Siptah</option></select>
       <span id="miniOnline" class="mini-online"></span>
+      <button id="miniRefresh" class="mini-x" title="Refresh map">↻</button>
       <button id="miniSize" class="mini-x" title="Resize map (Normal / Large)">⤢</button>
       <button id="miniPopout" class="mini-x" title="Pop out map to its own window">⧉</button>
       <button id="miniCollapse" class="mini-x" title="Hide map">▾</button>
     </div>
-    <div class="mini-sub">↻ refreshes every 30 seconds</div>
+    <div class="mini-sub" id="miniSub">click ↻ to refresh</div>
     <div class="mini-body">
       <canvas id="miniCanvas" width="230" height="230"></canvas>
       <div id="miniTip" class="mini-tip hidden"></div>

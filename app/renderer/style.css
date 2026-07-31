@@ -307,7 +307,13 @@ table.grid.mini th, table.grid.mini td { padding: 3px 8px; font-size: 11px; }
 }
 .inv-card:hover { border-color: var(--red); background: linear-gradient(180deg, var(--surface-hover-top), var(--surface-hover-bot)); }
 .inv-ico { width: 46px; height: 46px; object-fit: contain; image-rendering: auto; filter: drop-shadow(0 1px 3px rgba(0,0,0,.6)); }
-.inv-ico-missing { background: repeating-linear-gradient(45deg, #1a1f2b, #1a1f2b 6px, #141822 6px, #141822 12px); border-radius: 5px; }
+/* Items with no catalog icon (e.g. items added in a patch newer than the item
+   DB) get a tidy generic "item" glyph instead of a blank/broken tile. */
+.inv-ico-missing {
+  background: #141822 center / 28px no-repeat;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23566' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 7l9-4 9 4v10l-9 4-9-4z'/%3E%3Cpath d='M3 7l9 4 9-4M12 11v10'/%3E%3C/svg%3E");
+  border: 1px solid var(--border); border-radius: 5px;
+}
 .inv-name { font-family: 'Rajdhani', sans-serif; font-size: 12px; line-height: 1.1; text-align: center; color: var(--text-dim); max-height: 2.3em; overflow: hidden; }
 .inv-qty { position: absolute; top: 5px; right: 6px; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; color: #fff; background: var(--red); border-radius: 8px; padding: 0 6px; box-shadow: 0 1px 3px rgba(0,0,0,.5); }
 
@@ -402,6 +408,9 @@ body.popout-map #miniSize, body.popout-map #miniPopout, body.popout-map #miniCol
 .mini-online { margin-left: auto; font-size: 10px; color: var(--green); font-weight: 700; white-space: nowrap; }
 .mini-x { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 13px; padding: 0 2px; }
 .mini-x:hover { color: var(--red-bright); }
+.mini-x:disabled { opacity: .5; cursor: default; }
+.mini-x.spinning { animation: mini-spin .8s linear infinite; display: inline-block; }
+@keyframes mini-spin { to { transform: rotate(360deg); } }
 .mini-sub { padding: 0 9px 6px; font-size: 10px; color: var(--muted); letter-spacing: .3px; }
 .mini-body { position: relative; padding: 0 8px 8px; }
 #miniCanvas { width: 100%; height: auto; display: block; border-radius: 6px; border: 1px solid var(--border); }
