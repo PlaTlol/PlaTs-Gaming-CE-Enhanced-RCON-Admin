@@ -1,6 +1,7 @@
 'use strict';
 const { parseSqlTable, parseListPlayers, sqlEscape } = require('./sqlparse');
-const { conToken, findUniqueOnline } = require('./playerToken');
+const { conToken, tokenRejectReason, conQuote, nameArg, findUniqueOnline } = require('./playerToken');
+const { decodeRegionSpawnPoints, regionLabel, regionOf, REGION_SPLIT_X } = require('./spawnPoints');
 
 // Every function here returns a normalized result:
 //   { ok: bool, title: string, message?: string, table?: {columns,rows}, raw?: string }
@@ -86,9 +87,10 @@ async function getAdmin(rcon, cfg) {
 // Run a console command in an online player's context.
 //
 // The target is resolved against a FRESH `listplayers` on every call, and the
-// `<id>` sent is the account token `name#number` (see src/playerToken.js for why
-// User ID / Platform ID / idx are unsafe). Callers pass the whole target object,
-// never an index.
+// `<id>` sent is the account token `name#number` **in double quotes** (see
+// src/playerToken.js for why User ID / Platform ID / idx are unsafe, and why the
+// quoting is unconditional). Callers pass the whole target object, never an
+// index — and never build a `con` line themselves; this is the only emit site.
 //
 // `roster` is an optional already-fetched listplayers result, so an action that
 // needs both the admin and the target doesn't query twice.
@@ -105,12 +107,24 @@ async function con(rcon, target, command, roster) {
   const token = conToken(player);
   if (!token) {
     throw new Error(
-      `${player.charName || 'That player'} has no usable account name in listplayers, ` +
-      `so there is no safe way to target them with "con".`
+      `${player.charName || 'That player'} can't be targeted with "con": ` +
+      `${tokenRejectReason(player)}.`
     );
   }
-  const raw = await rcon.command(`con ${token} ${cmd}`);
+  const raw = await rcon.command(`con ${conQuote(token)} ${cmd}`);
   return { raw, token, player };
+}
+
+// A name we're about to pass as a console-command argument must not contain a
+// double quote — it would close the quoting early and let the tail run as its
+// own command. Refuse rather than send something we can't reason about.
+function assertQuotable(name) {
+  if (String(name || '').includes('"')) {
+    throw new Error(
+      `"${name}" contains a double quote, which can't be passed safely as a ` +
+      `console-command argument. Rename the character to use this action.`
+    );
+  }
 }
 
 // `con` reports "Successfully executed" even when the wrong player moved or
@@ -163,28 +177,34 @@ async function freezePlayer(rcon, cfg, target, freeze) {
 // both "teleport me to them" (run as admin) and "summon them to me" (run as the
 // target). Verified live: an admin on Exiled Lands teleported onto a player on
 // Siptah. Confirmed working 2026-06-04.
+//
+// The <name> argument is a character name, which may itself contain a space
+// ("Burt McSquirt"). Unquoted it splits the same way an unquoted `con` target
+// does, so nameArg() quotes spaced names; unspaced names are emitted unchanged.
 async function teleportToPlayer(rcon, cfg, target) {
   if (!target.charName) throw new Error('That player has no character name to teleport to yet.');
   const admin = await getAdmin(rcon, cfg);
   // Resolve the target against the same roster so the name we hand to
   // TeleportToPlayer belongs to a player we've confirmed is online and unique.
   const dest = findUniqueOnline(admin.roster, target);
-  const r = await con(rcon, admin, `TeleportToPlayer ${dest.charName}`, admin.roster);
+  assertQuotable(dest.charName);
+  const r = await con(rcon, admin, `TeleportToPlayer ${nameArg(dest.charName)}`, admin.roster);
   return { ok: true, title: 'Teleport to Player', message: `Teleported you (${admin.charName}) to ${dest.charName} ${via(r)}.`, raw: r.raw };
 }
 
 async function summonPlayer(rcon, cfg, target) {
   const admin = await getAdmin(rcon, cfg);
   if (!admin.charName) throw new Error('Your admin character name is not set.');
+  assertQuotable(admin.charName);
   // Run TeleportToPlayer in the TARGET's context so they come to the admin.
-  const r = await con(rcon, target, `TeleportToPlayer ${admin.charName}`, admin.roster);
+  const r = await con(rcon, target, `TeleportToPlayer ${nameArg(admin.charName)}`, admin.roster);
   return { ok: true, title: 'Summon Player', message: `Summoned ${r.player.charName} to you (${admin.charName}) ${via(r)}.`, raw: r.raw };
 }
 
-// The x coordinate that separates the two world regions. `TeleportPlayer x y z`
-// cannot cross between them (only `TeleportToPlayer <name>` can), so a home on
-// the far side is unreachable and we say so instead of teleporting into nowhere.
-const REGION_SPLIT_X = 800000;
+// `TeleportPlayer x y z` cannot cross between the two world regions (only
+// `TeleportToPlayer <name>` can), so a home on the far side is unreachable and
+// we say so instead of teleporting into nowhere. REGION_SPLIT_X / regionOf live
+// in src/spawnPoints.js alongside the region names the game itself uses.
 
 // A placeable records who placed it in `properties` as
 // `<Class>.PlacingPlayerUniqueID` — a blob whose LAST 8 BYTES are the placer's
@@ -200,72 +220,167 @@ function placerIdSuffixHex(charId) {
   return out;
 }
 
-// Send a player to their bedroll.
+// Every place we could send a player home to, best first.
 //
-// Ownership is the subtle part: `buildings.owner_id` is the GUILD id when the
-// builder is in a clan, and only a character id for soloists. Matching it
-// against the character id alone — which this used to do — finds a home for
-// almost nobody: on a live server that was 12 of 450 characters, because 220 of
-// 235 beds are clan-owned. So we look for a bed the player PERSONALLY PLACED
-// (via PlacingPlayerUniqueID), and fall back to any bed owned by them or their
-// clan. That lifts coverage to 154 of 450 on the same data.
+// Two independent sources, and they are NOT equally good:
 //
-// Preference order, best first:
-//   0. a bedroll they placed themselves   <- their actual respawn item
-//   1. a bed they placed themselves
-//   2. a bedroll owned by them or their clan
-//   3. a bed owned by them or their clan
+//   1. The BOUND spawn point — `BasePlayerChar_C.RegionSpawnPoints`, the game's
+//      own record of which bedroll and which bed this character respawns at, per
+//      region. Authoritative. See src/spawnPoints.js.
+//   2. OWNERSHIP — a bed they personally placed (decoded from
+//      PlacingPlayerUniqueID), or one owned by them or their clan. Inference,
+//      and it cannot tell clanmates apart: `buildings.owner_id` is the GUILD id
+//      for anyone in a clan, so a whole clan resolves to the same bed. Measured
+//      live on Perdition: of 153 characters both sources could answer for, they
+//      picked a DIFFERENT bed 16 times — including four players all funnelled
+//      onto bedroll #1078258 by ownership while each had their own binding.
+//
+// So the bound spawn point wins when present, and ownership stays as the
+// fallback for the players who have no binding (or whose bound bed has decayed
+// — the game keeps the binding, so every id must be re-resolved). On live data
+// bound alone covers 156 characters, ownership alone 160, together 163.
+//
+// Rank, best first: bound bedroll, bound bed, placed bedroll, placed bed, own
+// bedroll, own bed, clan bedroll, clan bed — same-region options always first,
 // ties broken by newest (highest actor id).
-async function sendHome(rcon, cfg, target) {
+const HOME_RANK = { bound: 0, placed: 2, own: 4, clan: 6 };
+
+function homeLabel(source, isBedroll) {
+  const what = isBedroll ? 'bedroll' : 'bed';
+  if (source === 'bound') return `their ${what}`;
+  if (source === 'placed') return `a ${what} they placed`;
+  if (source === 'own') return `a ${what} they own`;
+  return `their clan's ${what}`;
+}
+
+async function homeOptions(rcon, cfg, target) {
   const id = toInt(target.dbId);
   if (id == null) {
     return { ok: false, title: 'Send Home', message: `${target.charName} has no character record, so there is no home to look up.` };
   }
-  const placed =
+
+  // Where they are now. Null = never spawned, so don't gate on region at all.
+  const selfRows = parseSqlTable(await rcon.command(
+    `sql SELECT CAST(x AS INT) AS x FROM actor_position WHERE id=${id} LIMIT 1;`
+  )).rows;
+  const selfX = selfRows.length ? toInt(selfRows[0].x) : null;
+  const myRegion = selfX == null ? null : regionOf(selfX);
+
+  // --- source 1: the bound spawn points (hex() so the blob survives RCON) ---
+  const spRows = parseSqlTable(await rcon.command(
+    `sql SELECT hex(value) AS h FROM properties WHERE object_id=${id} ` +
+    `AND name='BasePlayerChar_C.RegionSpawnPoints' LIMIT 1;`
+  )).rows;
+  const boundBy = new Map(); // actor id -> { region, slot }
+  if (spRows.length && spRows[0].h && spRows[0].h !== 'void') {
+    for (const [region, slots] of Object.entries(decodeRegionSpawnPoints(spRows[0].h))) {
+      for (const slot of ['BedRoll', 'Bed']) {
+        const aid = slots[slot];
+        if (aid != null && !boundBy.has(aid)) boundBy.set(aid, { region, slot });
+      }
+    }
+  }
+
+  // --- source 2: beds they placed / they or their clan own ---
+  const placedSql =
     `EXISTS (SELECT 1 FROM properties p WHERE p.object_id=ap.id ` +
     `AND p.name LIKE '%.PlacingPlayerUniqueID' AND hex(p.value) LIKE '%${placerIdSuffixHex(id)}')`;
-  const selfX = `(SELECT x FROM actor_position WHERE id=${id})`;
-
-  const raw0 = await rcon.command(
-    `sql SELECT ap.x AS x, ap.y AS y, ap.z AS z, ap.class AS class, ` +
-    `CASE WHEN ${placed} THEN (CASE WHEN ap.class LIKE '%Bedroll%' THEN 0 ELSE 1 END) ` +
-    `ELSE (CASE WHEN ap.class LIKE '%Bedroll%' THEN 2 ELSE 3 END) END AS pri, ` +
-    // Unknown current position (never spawned) -> don't filter by region.
-    `CASE WHEN ${selfX} IS NULL THEN 1 WHEN (ap.x > ${REGION_SPLIT_X}) = (${selfX} > ${REGION_SPLIT_X}) THEN 1 ELSE 0 END AS sameRegion ` +
+  const ownedRows = parseSqlTable(await rcon.command(
+    `sql SELECT ap.id AS id, ap.class AS class, CAST(ap.x AS INT) AS x, CAST(ap.y AS INT) AS y, ` +
+    `CAST(ap.z AS INT) AS z, IFNULL(b.owner_id,0) AS owner, ` +
+    `CASE WHEN ${placedSql} THEN 1 ELSE 0 END AS placed ` +
     `FROM actor_position ap LEFT JOIN buildings b ON b.object_id=ap.id ` +
-    `WHERE ap.class LIKE '%Bed%' AND (${placed} OR b.owner_id IN (${id}, COALESCE((SELECT guild FROM characters WHERE id=${id}),0))) ` +
-    `ORDER BY sameRegion DESC, pri ASC, ap.id DESC LIMIT 1;`
-  );
-  const { rows } = parseSqlTable(raw0);
-  if (!rows.length) {
-    return { ok: false, title: 'Send Home', message: `${target.charName} has no bed or bedroll on the server (none they placed, and none owned by them or their clan), so there is no home to send them to.` };
-  }
-  const row = rows[0];
+    `WHERE ap.class LIKE '%Bed%' AND (${placedSql} OR b.owner_id IN ` +
+    `(${id}, COALESCE((SELECT guild FROM characters WHERE id=${id}),0))) ` +
+    `ORDER BY ap.id DESC LIMIT 24;`
+  )).rows;
 
-  if (toInt(row.sameRegion) === 0) {
-    // sameRegion=0 means the player is necessarily in the OTHER region.
-    const homeOnSiptah = Number(row.x) > REGION_SPLIT_X;
-    const home = homeOnSiptah ? 'the Isle of Siptah' : 'the Exiled Lands';
-    const now = homeOnSiptah ? 'the Exiled Lands' : 'the Isle of Siptah';
+  // Bound ids the ownership query didn't already return still need coordinates.
+  const seen = new Set(ownedRows.map((r) => toInt(r.id)));
+  const missing = [...boundBy.keys()].filter((aid) => !seen.has(aid));
+  let boundRows = [];
+  if (missing.length) {
+    boundRows = parseSqlTable(await rcon.command(
+      `sql SELECT id, class, CAST(x AS INT) AS x, CAST(y AS INT) AS y, CAST(z AS INT) AS z ` +
+      `FROM actor_position WHERE id IN (${missing.join(',')});`
+    )).rows;
+  }
+
+  const guildId = toInt((parseSqlTable(await rcon.command(
+    `sql SELECT IFNULL(guild,0) AS g FROM characters WHERE id=${id} LIMIT 1;`
+  )).rows[0] || {}).g) || 0;
+
+  const build = (r, fromOwned) => {
+    const aid = toInt(r.id);
+    if (aid == null) return null;
+    const x = toInt(r.x), y = toInt(r.y), z = toInt(r.z);
+    if (x == null || y == null || z == null) return null;
+    const isBedroll = /Bedroll/i.test(String(r.class || ''));
+    const bind = boundBy.get(aid);
+    let source;
+    if (bind) source = 'bound';
+    else if (fromOwned && toInt(r.placed)) source = 'placed';
+    else if (fromOwned && toInt(r.owner) === id) source = 'own';
+    else source = 'clan';
+    // Trust the actor's real coordinates for the region, not the binding's key —
+    // they agreed on 200/200 entries live, and the coordinates are what we teleport to.
+    const region = regionOf(x);
+    return {
+      id: aid, isBedroll, source, slot: bind ? bind.slot : null,
+      x, y, z, region, regionName: regionLabel(region),
+      sameRegion: myRegion == null || region === myRegion,
+      label: homeLabel(source, isBedroll),
+      rank: HOME_RANK[source] + (isBedroll ? 0 : 1),
+    };
+  };
+
+  const byId = new Map();
+  for (const r of ownedRows) { const o = build(r, true); if (o) byId.set(o.id, o); }
+  for (const r of boundRows) { const o = build(r, false); if (o && !byId.has(o.id)) byId.set(o.id, o); }
+  // A bound id that resolves to nothing = the bed decayed; it is simply absent.
+
+  const options = [...byId.values()].sort(
+    (a, b) => (Number(b.sameRegion) - Number(a.sameRegion)) || (a.rank - b.rank) || (b.id - a.id)
+  );
+  return { ok: true, title: 'Send Home', options, guildId, myRegion, selfKnown: selfX != null };
+}
+
+// Send a player home. With no `opts.actorId` it picks the best option (bound
+// spawn point first); the renderer passes one when the admin chose from the list.
+async function sendHome(rcon, cfg, target, opts = {}) {
+  const found = await homeOptions(rcon, cfg, target);
+  if (!found.ok) return found;
+  const { options } = found;
+  if (!options.length) {
+    return { ok: false, title: 'Send Home', message: `${target.charName} has no bed or bedroll on the server (nothing they are bound to, none they placed, and none owned by them or their clan), so there is no home to send them to.` };
+  }
+
+  const wanted = opts.actorId == null ? null : toInt(opts.actorId);
+  const pick = wanted == null ? options[0] : options.find((o) => o.id === wanted);
+  if (!pick) {
+    return { ok: false, title: 'Send Home', message: `That bed no longer exists — reopen Send Home to see what ${target.charName} still has.` };
+  }
+
+  if (!pick.sameRegion) {
+    const now = pick.region === 'IsleOfSiptah' ? regionLabel('ExiledLands') : regionLabel('IsleOfSiptah');
+    const which = wanted == null ? `${target.charName}'s only bed is` : `That ${pick.isBedroll ? 'bedroll' : 'bed'} is`;
     return {
       ok: false,
       title: 'Send Home',
       message:
-        `${target.charName}'s only bed is on ${home}, but they are currently on ${now}. ` +
+        `${which} on ${pick.regionName}, but they are currently on ${now}. ` +
         `TeleportPlayer cannot move a player between the two regions — use Summon, or have them travel there first.`,
     };
   }
 
-  const isBedroll = /Bedroll/i.test(String(row.class || ''));
-  const own = toInt(row.pri) <= 1 ? 'their own ' : "their clan's ";
   const cmd = (cfg.consoleCommands && cfg.consoleCommands.teleportSelf) || 'TeleportPlayer';
   // TeleportPlayer takes integers only. Lift slightly so they don't land inside
   // the bed mesh or the floor it sits on.
-  const r = await con(rcon, target, `${cmd} ${tpInt(row.x)} ${tpInt(row.y)} ${tpInt(row.z) + 50}`);
+  const r = await con(rcon, target, `${cmd} ${tpInt(pick.x)} ${tpInt(pick.y)} ${tpInt(pick.z) + 50}`);
   return {
     ok: true,
     title: 'Send Home',
-    message: `Sent ${target.charName} to ${own}${isBedroll ? 'bedroll' : 'bed'} ${via(r)}.`,
+    message: `Sent ${target.charName} to ${pick.label}${pick.source === 'bound' ? ' (their bound spawn point)' : ''} ${via(r)}.`,
     raw: r.raw,
   };
 }
@@ -765,7 +880,7 @@ async function disbandGuild(rcon, cfg, guildId) {
 module.exports = {
   listPlayers, resolveDbCharacter, getCoords, getAdmin,
   kickPlayer, killPlayer, freezePlayer,
-  teleportToPlayer, summonPlayer, sendHome,
+  teleportToPlayer, summonPlayer, sendHome, homeOptions,
   viewCharacter, editCharacter, setLevel, deleteCharacter, removeBuildings,
   viewInventory, buildingHeatmap, buildingOwnerAt, topBuilders,
   serverDashboard, listBans, banPlayer, unbanPlayer, whitelistPlayer, findCharacters,

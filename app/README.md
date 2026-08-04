@@ -25,17 +25,15 @@ Fully **templatable**: anyone can run it, click **+ Add Server**, and plug in
 | Section | Button | How it works |
 |---|---|---|
 | Punishments | **Kick Player** | native `kickplayer` |
-| | **Kill Player** | `con <name#number> Suicide` (command configurable) |
-| Interactions | **Teleport to Player** | `con <you> TeleportToPlayer <target>` |
-| | **Summon Player** | `con <target> TeleportToPlayer <you>` |
-| | **Send Home** | `sql` lookup of a bedroll they placed (or one their clan owns), then `con <them> TeleportPlayer x y z` |
+| | **Kill Player** | `con "<name#number>" Suicide` (command configurable) |
+| Interactions | **Teleport to Player** | `con "<you>" TeleportToPlayer <target>` |
+| | **Summon Player** | `con "<target>" TeleportToPlayer <you>` |
+| | **Send Home** | `sql` read of their **bound spawn point** (`RegionSpawnPoints`), with a bed they placed / own / their clan owns as fallback — pick one, then `con "<them>" TeleportPlayer x y z` |
 | Tools | **Edit Character** | `sql UPDATE characters` (name / alive) |
-| | **Set Level** | `con <name#number> setlevel <n>` — live, player must be online |
+| | **Set Level** | `con "<name#number>" setlevel <n>` — live, player must be online |
 | | **Delete Character** | `sql DELETE` across all related tables (confirmed) |
 | | **Remove Buildings** | native `buildingquery destroy <owner>` |
-| | **View Feats** | `sql` progression properties (see notes) |
 | | **View Building Heatmap** | `sql` join of `buildings`→`actor_position`, rendered to canvas |
-| | **View Quest Flags** | `sql` quest properties |
 | | **View Inventory** | `sql` of `item_inventory` grouped by inventory type |
 
 ## How the data is reached
@@ -45,16 +43,19 @@ cover almost everything an admin panel needs:
 
 - **`sql <query>`** runs directly against the live `game.db` and **returns the
   result rows over RCON**. This backs every data view and DB edit.
-- **`con <name#number> <consolecommand>`** runs a console command in an online
+- **`con "<name#number>" <consolecommand>`** runs a console command in an online
   player's context. This backs teleport / summon / kill.
 
   The `<id>` is the **account token** from the *Player name* column of
   `listplayers` (e.g. `PlaT#49895`) — **not** the player index, **not** the
   "User ID" column, and **not** the Steam/platform id. The index shifts on any
   join or leave; the User ID isn't reliably one-to-one with a character and will
-  move a different player; an all-digit id gets re-parsed as an index. Note the
-  account name need not resemble the character name — an action on character
-  `Cummere` correctly sends `con Spacey#74755 …`. See
+  move a different player; an all-digit id gets re-parsed as an index. It is
+  **always sent in double quotes**: account names can contain a space
+  (`GsQ Spoz#12345`), `con` splits on whitespace, and quoting an unspaced name
+  behaves identically — so there's one code path and no call site can forget.
+  Note the account name need not resemble the character name — an action on
+  character `Cummere` correctly sends `con "Spacey#74755" …`. See
   [`RCON_Commands.md`](../RCON_Commands.md#targeting-a-player-with-con).
 
 No local access to `game.db` is needed — everything goes over the RCON socket,
@@ -93,8 +94,11 @@ files beside it.
 ## Notes & limitations
 
 - **Teleport / Summon** require *your* admin character to be **online**.
-- **`con` player id** is the **account token** `name#number` from `listplayers`
-  (handled automatically — see above).
+- **`con` player id** is the **account token** `name#number` from `listplayers`,
+  sent in double quotes (handled automatically — see above). Names containing a
+  `"` are refused: the quote would close the target early and let the rest of
+  the name run as a command. All-digit account names are refused too — the
+  server re-reads them as a player index.
 - **Duplicate character names** are refused rather than guessed: if two online
   players share a character name, pick the right one from the online list.
 - **"Successfully executed" is not proof.** Conan emits it even when the wrong
@@ -103,12 +107,23 @@ files beside it.
   (`item_inventory`, or the `TeleportPlayerServer:` line in `ConanSandbox.log`).
 - **View Inventory** shows item `template_id`s (mapping IDs to names needs an
   external item table not present in `game.db`).
-- **Send Home** finds a bed by *who placed it*, not by `buildings.owner_id`:
-  that column holds the **clan id** whenever the builder is in a clan, so
-  matching it against a character id finds a home for almost nobody. The placer
-  is decoded from the `<Class>.PlacingPlayerUniqueID` property (its last 8 bytes
-  are the placer's `characters.id`, little-endian). A bed owned by the player's
-  clan is used as a fallback.
+- **Send Home uses the player's bound spawn point.** `BasePlayerChar_C.RegionSpawnPoints`
+  in `properties` records, per character and per region, the bedroll **and** the
+  bed the game respawns them at. That is the only authoritative answer to "where
+  is home" — read it with `sql SELECT hex(value) …` (a bare blob column prints as
+  the literal `BLOB`; `hex()` returns TEXT and survives RCON). Decoder and
+  validation notes are in `src/spawnPoints.js`. When a player has more than one
+  option the app asks which to use rather than choosing for you.
+- **Ownership is only the fallback**, because it can't tell clanmates apart:
+  `buildings.owner_id` holds the **clan id** whenever the builder is in a clan,
+  so an entire clan resolves to the same beds. Who *placed* a bed is recoverable
+  from `<Class>.PlacingPlayerUniqueID` (its last 8 bytes are the placer's
+  `characters.id`, little-endian), which is better but still not the binding.
+  Measured live: of 153 characters both methods could answer for, they disagreed
+  16 times.
+- **A binding can outlive the bed.** The game keeps the reference after a bed
+  decays, so every bound id is re-resolved against `actor_position` and dropped
+  if it's gone.
 - **Send Home cannot cross regions.** `TeleportPlayer x y z` can't move a player
   between the Exiled Lands and the Isle of Siptah, so if their only bed is on the
   other side the action reports that instead of teleporting them nowhere.

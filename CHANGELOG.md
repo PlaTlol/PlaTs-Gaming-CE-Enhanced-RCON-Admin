@@ -7,6 +7,47 @@ This file mirrors the in-app **What's New** notes (the `CHANGELOG` array in
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and the
 project follows [Semantic Versioning](https://semver.org/).
 
+## [1.5.1] — August 2026
+
+### Added
+- **Send Home now asks which bed**, when there's more than one. It reads the
+  player's **bound spawn point** — the bedroll and bed the game itself respawns
+  them at, stored per region in `BasePlayerChar_C.RegionSpawnPoints` — and lists
+  it first, marked. Beds they placed, own, or their clan owns are offered below
+  it. One option means no prompt: it just sends them.
+- **A map beside the list**, showing every one of those beds as a green dot on
+  the in-game map. Hovering a row makes its dot flare; hovering a dot lights its
+  row, and clicking the dot sends them there. Uses the same calibration as the
+  heatmap and live player map.
+- Beds on the **other map are listed but not selectable**, since
+  `TeleportPlayer` can't cross regions. The map pane has a **Show the other map**
+  toggle, and unreachable beds are drawn dimmed.
+
+### Changed
+- **Send Home targets the bound spawn point** instead of guessing from
+  ownership. Ownership can't tell clanmates apart — `buildings.owner_id` is the
+  *clan* id for anyone in a clan — so a whole clan resolved to the same bed.
+  Measured on a live server: of 153 characters both methods could answer for,
+  they picked a **different** bed 16 times, including four players all funnelled
+  onto one bedroll while each had their own binding. Ownership remains the
+  fallback for players with no binding, or whose bound bed has decayed.
+
+### Fixed
+- **Live actions now quote the account token.** Account names may contain a
+  space (`GsQ Spoz#12345`), and `con` splits its arguments on whitespace — so
+  the token was truncated to its first word and the command fell through to the
+  positional `con <idx>` path, targeting whoever occupied that index. Affected
+  **Kill**, **Freeze/Unfreeze**, **Teleport to Player**, **Summon**,
+  **Send Home** and **Set Level** for every player with a spaced account name.
+  `con` honours double quotes, and quoting an unspaced name behaves identically,
+  so the token is now **always** quoted — one code path, no call site can forget.
+- **`TeleportToPlayer <name>` quotes spaced character names** too, so Teleport
+  to Player / Summon work for names like `Burt McSquirt`. Unspaced names are
+  emitted exactly as before.
+- Actions **refuse an account name containing a double quote** (it would close
+  the quoting early and let the rest run as a command) and say why, alongside
+  the existing refusal of all-digit names (re-parsed as an index).
+
 ## [1.5.0] — July 2026
 
 ### Changed

@@ -59,13 +59,34 @@ reports success and is a **no-op** for these.
 
 | Identifier | Use it? | Why |
 |---|---|---|
-| **`name#number`** (Player name column) | ✅ **always** | The only identifier `con` resolves correctly. |
+| **`name#number`** (Player name column) | ✅ **always**, in `"quotes"` | The only identifier `con` resolves correctly. Must be quoted — account names can contain spaces (see below). |
 | **User ID** (`A-8CPC756VE`) | 🛑 **never** | Despite the name it is *not* a Funcom account id. `con` can't resolve it and it **moves a different player** — two distinct User IDs have been seen resolving to one character object, which is what caused an arena teleport to move two uninvolved players. |
 | **Platform / Steam ID** | 🛑 **never** | All digits, so the server **re-parses it as an `idx`** and hits whoever holds that index. |
 | **`idx`** | ⚠️ fallback only | Shifts on **any** join or leave — stale the moment the roster changes. |
 
+**Always send `<id>` in double quotes.** `con` splits its arguments on
+whitespace, and account names may contain a space — unquoted, only the first word
+is read as the id and the rest of the line shifts along. Verified live:
+
+```
+con "Nobody Here#00000" TeleportPlayer 1 1 1
+  → Couldn't find a valid player with name Nobody Here#00000   ← whole name parsed
+con Nobody Here#00000 TeleportPlayer 1 1 1
+  → Command not recognized: Here#00000 TeleportPlayer 1 1 1    ← split on the space
+```
+
+Quoting a name **without** a space behaves identically, so quote unconditionally —
+one code path, and no call site can forget. Unquoted, a spaced name falls through
+to the positional `con <idx>` path and moves whoever holds that index. A name
+containing a `"` cannot be sent at all: it closes the quoting early and the tail
+runs as its own command — refuse it.
+
+The same applies to **name arguments** of the command being run:
+`con "<id>" TeleportToPlayer "Burt McSquirt"` — a spaced *character* name needs
+quoting too.
+
 **The account name need not resemble the character name.** An order for character
-`Cummere` correctly sends `con Spacey#74755 …` — same person. Always join through
+`Cummere` correctly sends `con "Spacey#74755" …` — same person. Always join through
 `listplayers` before issuing a command; assuming the character name is the token
 misroutes silently.
 
@@ -89,6 +110,20 @@ recognised but broken.
 - **`JourneyCompleteAll` grants XP** and can level someone unintentionally.
 - **Never loop a per-item progression command.** 51 looped `JourneyComplete`s hung
   the live game thread for ~3 minutes. **~20 commands is the practical ceiling.**
+
+### Reading blobs through `sql`
+
+A blob column selected directly prints as the literal `BLOB`. Wrap it —
+`sql SELECT hex(value) …` returns TEXT and comes back intact. Useful because
+several answers only exist inside blobs:
+
+- **`BasePlayerChar_C.RegionSpawnPoints`** — a character's bound bedroll *and*
+  bed, per region (`ExiledLands` / `IsleOfSiptah`). The game's own answer to
+  "where do they respawn"; ownership can't match it, since a clan's members all
+  own the same beds. Largest observed blob is 547 bytes = 1094 hex chars, well
+  under the reply cap.
+- **`<Class>.PlacingPlayerUniqueID`** — last 8 bytes are the placer's
+  `characters.id`, little-endian.
 
 ### Verifying that it actually worked
 

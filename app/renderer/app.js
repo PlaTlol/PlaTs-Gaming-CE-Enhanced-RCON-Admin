@@ -143,7 +143,7 @@ const ACTIONS = {
   kill: async () => requireTarget() && confirmThen('Kill Player', `Kill ${selected.charName}?`, () => run('Kill', api.kill(selected))),
   teleportTo: async () => requireDbId() && run('Teleport to Player', api.teleportTo(selected)),
   summon: async () => requireTarget() && run('Summon Player', api.summon(selected)),
-  sendHome: async () => requireDbId() && run('Send Home', api.sendHome(selected)),
+  sendHome: async () => requireDbId() && openSendHome(),
   editCharacter: async () => requireDbId() && openEdit(),
   setLevel: async () => requireOnline() && openSetLevel(),
   deleteCharacter: async () => requireDbId() && confirmThen('Delete Character', `PERMANENTLY delete ${selected.charName} (dbId ${selected.dbId}) and all related data? This cannot be undone.`, () => run('Delete Character', api.deleteCharacter(selected))),
@@ -322,6 +322,163 @@ function openEdit() {
     selected.charName = fields.char_name || selected.charName; updateSelected();
   };
   body.appendChild(btn);
+  $('dataModal').classList.remove('hidden');
+}
+
+// ---------- send home (pick which bed / bedroll) ----------
+// One option -> just send it. More than one -> let the admin choose, because
+// "home" is genuinely ambiguous: a player can be bound to both a bedroll and a
+// bed, and may own others besides. The bound spawn point is listed first and
+// marked, since that is the one the game itself respawns them at.
+//
+// The game's region names -> the map keys in MAP_DEFS.
+const homeMapKey = (region) => (region === 'IsleOfSiptah' ? 'siptah' : 'exiled');
+const _homeImgs = {};
+const homeImg = async (k) => { if (!(k in _homeImgs)) _homeImgs[k] = await loadImage(MAP_DEFS[k].img); return _homeImgs[k]; };
+async function openSendHome() {
+  const res = await api.homeOptions(selected);
+  if (!res || !res.ok) { log({ ok: false, title: 'Send Home', message: (res && res.message) || 'Could not look up their home.' }); return; }
+  const opts = res.options || [];
+  if (!opts.length) {
+    log({ ok: false, title: 'Send Home', message: `${selected.charName} has no bed or bedroll on the server (nothing they are bound to, none they placed, and none owned by them or their clan).` });
+    return;
+  }
+  if (opts.length === 1) { await run('Send Home', api.sendHome(selected, { actorId: opts[0].id })); return; }
+
+  // A big clan can own dozens of beds and they're all equally arbitrary — show a
+  // handful so the real answers (bound / placed / their own) stay visible.
+  const CLAN_SHOWN = 6;
+  const shown = [];
+  let clanHidden = 0;
+  opts.forEach((o) => {
+    if (o.source !== 'clan') { shown.push(o); return; }
+    if (shown.filter((s) => s.source === 'clan').length < CLAN_SHOWN) shown.push(o); else clanHidden++;
+  });
+
+  $('dataTitle').textContent = `Send Home: ${selected.charName}`;
+  const body = $('dataBody'); body.innerHTML = '';
+  const reachable = shown.filter((o) => o.sameRegion).length;
+  body.appendChild(noteEl(
+    reachable === shown.length
+      ? 'Pick where to send them. Their bound spawn point is where the game would respawn them.'
+      : `Pick where to send them. ${shown.length - reachable} of these are on the other map — TeleportPlayer can't cross regions, so they're not selectable.`
+  ));
+
+  // Left: the list. Right: the same beds as dots on the in-game map, using the
+  // calibration the heatmap and live map already share (MAP_DEFS/effCal), so a
+  // dot lands where the bed really is. Hovering either side lights the other.
+  const wrap = document.createElement('div'); wrap.className = 'home-wrap';
+  const list = document.createElement('div'); list.className = 'home-list';
+  const pane = document.createElement('div'); pane.className = 'home-map';
+  const head = document.createElement('div'); head.className = 'home-map-head';
+  const canvas = document.createElement('canvas');
+  canvas.width = 300; canvas.height = 300; canvas.className = 'home-canvas';
+  pane.appendChild(head); pane.appendChild(canvas);
+  wrap.appendChild(list); wrap.appendChild(pane);
+  body.appendChild(wrap);
+
+  const btnById = new Map();
+  let mapKey = homeMapKey((shown.find((o) => o.sameRegion) || shown[0]).region);
+  let hotId = null;
+
+  const setHot = (id) => {
+    if (hotId === id) return;
+    hotId = id;
+    btnById.forEach((b, k) => b.classList.toggle('hot', k === hotId));
+    const o = shown.find((s) => s.id === id);
+    if (o && homeMapKey(o.region) !== mapKey) mapKey = homeMapKey(o.region);
+    draw();
+  };
+
+  shown.forEach((o) => {
+    const btn = document.createElement('button');
+    btn.className = 'home-opt' + (o.source === 'bound' ? ' bound' : '');
+    btn.disabled = !o.sameRegion;
+    btn.innerHTML =
+      `<span class="home-ico">${o.isBedroll ? '🛏️' : '🛌'}</span>` +
+      `<span class="home-txt">` +
+        `<span class="home-name">${esc(o.isBedroll ? 'Bedroll' : 'Bed')}` +
+          (o.source === 'bound' ? '<span class="home-tag">bound spawn point</span>' : '') +
+        `</span>` +
+        `<span class="home-sub">${esc(o.label)} · ${esc(o.regionName)} · ${o.x}, ${o.y}` +
+          (o.sameRegion ? '' : ' · other map — unreachable') +
+        `</span>` +
+      `</span>`;
+    // Disabled buttons don't fire mouse events, so track the hover on the row.
+    btn.onmouseenter = () => setHot(o.id);
+    btn.onfocus = () => setHot(o.id);
+    btn.onmouseleave = () => setHot(null);
+    btn.onblur = () => setHot(null);
+    btn.onclick = () => sendTo(o);
+    btnById.set(o.id, btn);
+    list.appendChild(btn);
+  });
+  if (clanHidden) list.appendChild(noteEl(`+ ${clanHidden} more bed${clanHidden === 1 ? '' : 's'} owned by their clan, not shown.`));
+
+  async function sendTo(o) {
+    if (!o.sameRegion) return;
+    $('dataModal').classList.add('hidden');
+    await run('Send Home', api.sendHome(selected, { actorId: o.id }));
+  }
+
+  async function draw() {
+    const here = shown.filter((o) => homeMapKey(o.region) === mapKey);
+    const other = shown.length - here.length;
+    head.innerHTML =
+      `<span>${esc(mapKey === 'siptah' ? 'Isle of Siptah' : 'Exiled Lands')} · ${here.length} bed${here.length === 1 ? '' : 's'}</span>` +
+      (other ? `<button class="home-swap">Show the other map (${other})</button>` : '');
+    const swap = head.querySelector('.home-swap');
+    if (swap) swap.onclick = () => { mapKey = mapKey === 'siptah' ? 'exiled' : 'siptah'; hotId = null; btnById.forEach((b) => b.classList.remove('hot')); draw(); };
+
+    const ctx = canvas.getContext('2d'); const W = canvas.width, H = canvas.height;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, W, H); ctx.fillStyle = '#05070d'; ctx.fillRect(0, 0, W, H);
+    const img = await homeImg(mapKey);
+    if (img) { ctx.drawImage(img, 0, 0, W, H); ctx.fillStyle = 'rgba(5,7,13,.36)'; ctx.fillRect(0, 0, W, H); }
+    const cal = effCal(mapKey, loadCal(mapKey));
+    const toMap = (p) => ({
+      x: (0.5 + (p.x - cal.cx) / cal.spanX) * W,
+      y: (cal.flipY ? (0.5 - (p.y - cal.cy) / cal.spanY) : (0.5 + (p.y - cal.cy) / cal.spanY)) * H,
+    });
+    canvas._dots = [];
+    // Highlighted dot drawn last so its glow sits on top of any neighbours.
+    here.slice().sort((a, b) => (a.id === hotId ? 1 : 0) - (b.id === hotId ? 1 : 0)).forEach((o) => {
+      const q = toMap(o);
+      canvas._dots.push({ x: q.x, y: q.y, o });
+      const hot = o.id === hotId;
+      if (hot) { // outer halo
+        ctx.beginPath(); ctx.arc(q.x, q.y, 13, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(134,239,172,.6)'; ctx.lineWidth = 1.5; ctx.stroke();
+      }
+      ctx.beginPath(); ctx.arc(q.x, q.y, hot ? 7 : 4.5, 0, Math.PI * 2);
+      ctx.fillStyle = !o.sameRegion ? '#6b7f74' : (hot ? '#bbf7d0' : '#4ade80');
+      ctx.shadowColor = '#4ade80'; ctx.shadowBlur = hot ? 20 : (o.sameRegion ? 6 : 0);
+      ctx.fill(); ctx.shadowBlur = 0;
+      ctx.lineWidth = hot ? 2 : 1;
+      ctx.strokeStyle = hot ? '#fff' : 'rgba(0,0,0,.55)'; ctx.stroke();
+    });
+  }
+
+  const hit = (e) => {
+    const r = canvas.getBoundingClientRect();
+    const mx = (e.clientX - r.left) * (canvas.width / r.width);
+    const my = (e.clientY - r.top) * (canvas.height / r.height);
+    let best = null, bestD = 14 * 14;
+    for (const d of canvas._dots || []) {
+      const dd = (d.x - mx) ** 2 + (d.y - my) ** 2;
+      if (dd < bestD) { bestD = dd; best = d; }
+    }
+    return best;
+  };
+  canvas.onmousemove = (e) => {
+    const d = hit(e);
+    canvas.style.cursor = d && d.o.sameRegion ? 'pointer' : 'default';
+    setHot(d ? d.o.id : null);
+  };
+  canvas.onmouseleave = () => setHot(null);
+  canvas.onclick = (e) => { const d = hit(e); if (d) sendTo(d.o); };
+
+  await draw();
   $('dataModal').classList.remove('hidden');
 }
 
@@ -1361,6 +1518,20 @@ function startMiniMap() {
 // ---------- "What's New" patch notes (shown once per new version) ----------
 // Newest first. The version of CHANGELOG[0] should match package.json.
 const CHANGELOG = [
+  {
+    version: '1.5.1',
+    date: 'August 2026',
+    items: [
+      'Send Home now asks which bed to use when a player has more than one — and it knows which one is really theirs. It reads the bedroll and bed the game actually respawns them at, shows that first, and offers beds they placed or their clan owns below it. If there is only one, it just sends them as before.',
+      'Send Home used to guess from ownership, which cannot tell clan members apart — everyone in a clan owns the same beds, so clanmates got sent to each other’s. On a live server that picked the wrong bed for 16 of 153 players.',
+      'Send Home shows a map next to the list with every bed as a green dot — hover a row and its dot flares, hover a dot and it lights the row. Click either one to send them there.',
+      'Beds on the other map are shown but greyed out, since a teleport cannot cross between the Exiled Lands and Siptah. The map has a toggle to look at the other one.',
+      'Fixed: live actions failed for any player whose account name contains a space (e.g. "GsQ Spoz#12345"). The name was sent unquoted, so the server read only the first word and fell back to targeting by list position — which is whoever happens to occupy that slot. Affected Kill, Freeze, Teleport to Player, Summon, Send Home and Set Level.',
+      'The account name is now always sent in double quotes, so spaced names resolve as one name.',
+      'Teleport to Player / Summon also quote the character name they pass, so players with a space in their character name (e.g. "Burt McSquirt") work too.',
+      'Actions now refuse to run against an account name containing a double quote, and say why, instead of sending a command that could break apart.',
+    ],
+  },
   {
     version: '1.5.0',
     date: 'July 2026',
