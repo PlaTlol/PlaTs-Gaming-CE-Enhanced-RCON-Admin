@@ -1,0 +1,20 @@
+# Dependabot opens pull requests that update this repo's dependencies.
+# Minor and patch updates arrive together in one PR; each major update gets its own.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /app
+    schedule:
+      interval: monthly
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+  - package-ecosystem: nuget
+    directory: /extractor
+    schedule:
+      interval: monthly
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
